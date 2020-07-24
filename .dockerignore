@@ -1,0 +1,8 @@
+.idea/
+.git/
+**/.git/
+.env
+bin/
+*.exe
+logs/
+monitoring/
