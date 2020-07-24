@@ -1,8 +1,11 @@
-package threader
+package main
 
 import (
 	"sync"
 	"time"
+	//"github.com/Shopify/sarama"
+
+	"github.com/Shopify/sarama"
 )
 
 func main() {
@@ -17,12 +20,13 @@ func main() {
 
 func Worker(id int, wg *sync.WaitGroup) {
 	defer wg.Done()
+	producer := NewAsyncProducer()
 	for i :=0; i< 3; i++ {
 		message := time.Now().Local().String()
-		Dispatch(id, message)
+		Dispatch(producer,id, message)
 	}
 }
 
-func Dispatch(id int, message string) {
+func Dispatch(producer sarama.AsyncProducer, id int, message string) {
 	
 }
