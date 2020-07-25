@@ -6,23 +6,23 @@ services:
     image: wurstmeister/zookeeper
     ports:
       - "2181:2181"
-  kafka:
-    container_name: kafka
-    hostname: kafka
+  kafka1:
+    container_name: kafka1
+    hostname: kafka1
     image: wurstmeister/kafka
     ports:
-      - "19092:9092"
+      - "9092:9092"
     environment:
       HOSTNAME_COMMAND: "route -n | awk '/UG[ \t]/{print $$2}'"
-      KAFKA_ADVERFISED_PORT: 19092
+      KAFKA_ADVERFISED_PORT: 9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_CREATE_TOPICS: "ws-text:3:1:compact,wet-rtc:2:1"
+      KAFKA_CREATE_TOPICS: "singlepass:3:1"
       KAFKA_BROKER_ID: "1"
-      SASL_USERNAME: G32SDBBRFPEAASUY
-      SASL_PASSWORD: CWKKMU/c6lqUnuEYscRwk2jBIEhVRsdOBm7ymA3c2KhqJp02l+QBhoV/LBeLYcU9
+    depends_on:
+      - zookeeper
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 networks:
   default:
     external:
-      name: fan
+      name: net

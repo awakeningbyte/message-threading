@@ -15,11 +15,10 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 .idea
-.env
-.env-*
+#.env demo project, no secret
+#.env-*
 bin/
 heroku.pkg
 kafka-logs/
 logs/
 *.exe
-monitoring/data/
