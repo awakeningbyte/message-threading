@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -17,7 +18,7 @@ import (
 
 const (
 	TopicSinglePass = "singlepass"
-	ConsumerGroupId = "workers"
+	ConsumerGroupId = "workers1"
 )
 
 type ChatMessage struct {
@@ -29,25 +30,21 @@ type ChatMessage struct {
 
 func main() {
 	//setup
-	clientWg := sync.WaitGroup{}
+	GenerateMessages()
 
-	for id,_ := range [3]int{} {
-		clientWg.Add(1)
-		go client(id, &clientWg)
-	}
+	// processing
+	//Process()
+}
 
-	clientWg.Wait()
-	log.Printf("%d concurrent conversations started, each conversation should generate $d test chat message .\n", 3, 10)
-
-	//processing
+func Process() {
 	log.Printf("bentchmark message processing")
 	workersWg := sync.WaitGroup{}
-	cancels := make([]context.CancelFunc,0 )
+	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
-	for wId := range [3]int{} {
+	for wId := range [1]int{} {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(workersWg, id, ConsumerGroupId)
+			cFunc := Worker(workersWg, wId, ConsumerGroupId)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()
@@ -66,15 +63,40 @@ func main() {
 
 	go func() {
 		workersWg.Wait()
-		done <-true
+		done <- true
 	}()
 
 	<-done
 }
 
+func GenerateMessages() {
+	clientWg := sync.WaitGroup{}
+
+	for id := range [1]int{} {
+		clientWg.Add(1)
+		go func(id int) {
+			client(id, &clientWg)
+		}(id)
+	}
+
+	clientWg.Wait()
+	log.Printf("%d concurrent conversations started, each conversation should generate $d test chat message .\n", 3, 10)
+}
+func ProcessResponse(producer sarama.AsyncProducer) {
+	for {
+		select {
+		case result := <-producer.Successes():
+			log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value,  result.Partition, result.Offset)
+		case err := <-producer.Errors():
+			log.Println("Failed to produce message", err)
+		}
+	}
+}
 func client(id int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	producer := NewAsyncProducer()
+	defer producer.Close()
+	//go ProcessResponse(producer)
 	for seqNum :=0; seqNum < 10; seqNum++ {
 		message := ChatMessage{
 			UserId:    id,
@@ -83,18 +105,19 @@ func client(id int, wg *sync.WaitGroup) {
 			TimeStamp: time.Now(),
 		}
 
-		Dispatch(producer,id, &message)
+		Dispatch(producer, &message)
+		fmt.Printf("user: %d, seq#: %d produced \n", id, seqNum)
 	}
 }
 
-func Dispatch(producer sarama.AsyncProducer, id int, message *ChatMessage) {
+func Dispatch(producer sarama.SyncProducer,message *ChatMessage) {
 	v, _:= json.Marshal(*message)
 	msg :=&sarama.ProducerMessage{
 		Topic:   TopicSinglePass  ,
 		Value:   sarama.StringEncoder(v),
 		Timestamp: time.Time{},
 	}
-	producer.Input() <- msg
+	producer.SendMessage(msg)
 }
 
 func Worker(wg sync.WaitGroup, wId int, groupId string) context.CancelFunc {
@@ -105,6 +128,7 @@ func Worker(wg sync.WaitGroup, wId int, groupId string) context.CancelFunc {
 	}
 	consumer := Consumer{
 		ready: make(chan bool),
+		Id: wId,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -118,6 +142,7 @@ func Worker(wg sync.WaitGroup, wId int, groupId string) context.CancelFunc {
 				return
 			}
 			consumer.ready = make(chan bool)
+			fmt.Printf("next")
 		}
 	}()
 	<- consumer.ready

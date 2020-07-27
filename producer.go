@@ -11,35 +11,31 @@ func NewConsumerGroup(name string, id int) (sarama.ConsumerGroup, error) {
 	brokerList := strings.Split(os.Getenv("brokers"), ",")
 	config := sarama.NewConfig()
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
+	config.Consumer.Return.Errors = true
 	//config.ClientID = fmt.Sprint("%d", id)
 	config.Version,_ = sarama.ParseKafkaVersion("2.1.1")
 	return sarama.NewConsumerGroup(brokerList, name, config)
 }
-func NewAsyncProducer() sarama.AsyncProducer {
+func NewAsyncProducer() sarama.SyncProducer {
 	brokerList := strings.Split(os.Getenv("brokers"), ",")
 	config := sarama.NewConfig()
-	config.Producer.RequiredAcks = sarama.WaitForAll
-	config.Producer.Retry.Max = 1
 	config.Producer.Return.Successes = true
-	producer, err := sarama.NewAsyncProducer(brokerList, config)
+	config.Producer.Return.Errors = true
+	producer, err := sarama.NewSyncProducer(brokerList, config)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to start order producer")
 	}
 
-	go func() {
-		for err := range producer.Errors() {
-			log.WithError(err).Error("Producer failed writing Order message")
-		}
-	}()
 
 	return producer
 }
 
 type Consumer struct {
 	ready chan bool
+	Id int
 }
 
-// Setup is run at the beginning of a new session, before ConsumeClaim
+// GenerateMessages is run at the beginning of a new session, before ConsumeClaim
 func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
 	// Mark the consumer as ready
 	close(consumer.ready)
@@ -59,7 +55,7 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	// The `ConsumeClaim` itself is called within a goroutine, see:
 	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
 	for message := range claim.Messages() {
-		log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s", string(message.Value), message.Timestamp, message.Topic)
+		log.Printf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", consumer.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
 	}
 

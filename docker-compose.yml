@@ -18,7 +18,7 @@ services:
       HOSTNAME_COMMAND: "route -n | awk '/UG[ \t]/{print $$2}'"
       KAFKA_ADVERFISED_PORT: 9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_CREATE_TOPICS: "singlepass:3:1"
+      KAFKA_CREATE_TOPICS: "singlepass:1:1"
       KAFKA_BROKER_ID: "1"
       KAFKA_LISTENERS: INTERNAL://kafka1:9092,OUTSIDE://kafka1:29092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:9092,OUTSIDE://localhost:29092
@@ -26,8 +26,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
     depends_on:
       - zookeeper
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+    #volumes:
+    # - /var/run/docker.sock:/var/run/docker.sock
 networks:
   default:
     external:
