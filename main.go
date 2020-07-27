@@ -43,10 +43,15 @@ func main() {
 	log.Printf("bentchmark message processing")
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc,0 )
-	for wId,_ := range [3]int{} {
+	mux := &sync.Mutex{}
+	for wId := range [3]int{} {
 		workersWg.Add(1)
-		cFunc := Worker(workersWg, wId, ConsumerGroupId)
-		cancels = append(cancels, cFunc)
+		go func(id int) {
+			cFunc := Worker(workersWg, id, ConsumerGroupId)
+			mux.Lock()
+			cancels = append(cancels, cFunc)
+			mux.Unlock()
+		}(wId)
 	}
 	done := make(chan bool)
 	sigterm := make(chan os.Signal, 1)
