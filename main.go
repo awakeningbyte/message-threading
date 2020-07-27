@@ -82,21 +82,33 @@ func GenerateMessages() {
 	clientWg.Wait()
 	log.Printf("%d concurrent conversations started, each conversation should generate $d test chat message .\n", 3, 10)
 }
-func ProcessResponse(producer sarama.AsyncProducer) {
+func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c context.CancelFunc) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case result := <-producer.Successes():
-			log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value,  result.Partition, result.Offset)
+			if result != nil {
+				log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value,  result.Partition, result.Offset)
+			} else {
+				c()
+			}
+
 		case err := <-producer.Errors():
-			log.Println("Failed to produce message", err)
+			if err != nil {
+				log.Println("Failed to produce message", err)
+			} else {
+				c()
+			}
 		}
 	}
 }
 func client(id int, wg *sync.WaitGroup) {
 	defer wg.Done()
+	ctx, cancel := context.WithCancel( context.Background())
 	producer := NewAsyncProducer()
-	defer producer.Close()
-	//go ProcessResponse(producer)
+	go ProcessResponse(producer, ctx, cancel)
+	defer cancel()
 	for seqNum :=0; seqNum < 10; seqNum++ {
 		message := ChatMessage{
 			UserId:    id,
@@ -108,16 +120,17 @@ func client(id int, wg *sync.WaitGroup) {
 		Dispatch(producer, &message)
 		fmt.Printf("user: %d, seq#: %d produced \n", id, seqNum)
 	}
+	producer.AsyncClose()
+	<-ctx.Done()
 }
 
-func Dispatch(producer sarama.SyncProducer,message *ChatMessage) {
+func Dispatch(producer sarama.AsyncProducer,message *ChatMessage) {
 	v, _:= json.Marshal(*message)
-	msg :=&sarama.ProducerMessage{
+	producer.Input() <- &sarama.ProducerMessage{
 		Topic:   TopicSinglePass  ,
 		Value:   sarama.StringEncoder(v),
 		Timestamp: time.Time{},
 	}
-	producer.SendMessage(msg)
 }
 
 func Worker(wg sync.WaitGroup, wId int, groupId string) context.CancelFunc {

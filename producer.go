@@ -16,16 +16,15 @@ func NewConsumerGroup(name string, id int) (sarama.ConsumerGroup, error) {
 	config.Version,_ = sarama.ParseKafkaVersion("2.1.1")
 	return sarama.NewConsumerGroup(brokerList, name, config)
 }
-func NewAsyncProducer() sarama.SyncProducer {
+func NewAsyncProducer() sarama.AsyncProducer {
 	brokerList := strings.Split(os.Getenv("brokers"), ",")
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
-	producer, err := sarama.NewSyncProducer(brokerList, config)
+	producer, err := sarama.NewAsyncProducer(brokerList, config)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to start order producer")
 	}
-
 
 	return producer
 }
