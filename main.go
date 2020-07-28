@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"sync"
@@ -13,7 +12,6 @@ import (
 
 const (
 	TopicSinglePass = "singlepass"
-	TopicComplete   = "Complete"
 	ConsumerGroupId = "workers1"
 )
 
@@ -33,15 +31,14 @@ func main() {
 }
 
 func ProcessThreads(n int) {
-	log.Printf("bentchmark message processing")
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
-	counter := make(chan int)
+	counter := make(chan int64)
 	for wId := 0; wId < n; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(workersWg, wId, counter, ConsumerGroupId)
+			cFunc := Worker(workersWg, id, counter, ConsumerGroupId)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()
@@ -64,7 +61,8 @@ func ProcessThreads(n int) {
 	}()
 
 	heartbeat := time.After(1 * time.Second)
-	total := 0
+	total := int64(0)
+	count := 0
 	for {
 		select {
 
@@ -74,15 +72,13 @@ func ProcessThreads(n int) {
 			if len(cancels) < n {
 				heartbeat = time.After(1 * time.Second)
 			} else {
-				fmt.Printf("stop processing. total %d message processed", total)
+				fmt.Printf("stop processing. message count: %d, total processing time: %d miliseconds.\n", count, total / 1000)
 				return
-
 			}
 		case c := <-counter:
+			count = count +1
 			total = total + c
 			heartbeat = time.After(1 * time.Second)
-
 		}
-
 	}
 }

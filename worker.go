@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
 )
 
-func Worker(wg sync.WaitGroup, wId int, counter chan int, groupId string) context.CancelFunc {
+func Worker(wg sync.WaitGroup, wId int, counter chan int64, groupId string) context.CancelFunc {
 	log.Printf("worker %d start processing messages", wId)
 	group, err := NewConsumerGroup(groupId, wId)
 	if err != nil {
@@ -32,11 +31,10 @@ func Worker(wg sync.WaitGroup, wId int, counter chan int, groupId string) contex
 				return
 			}
 			consumer.ready = make(chan bool)
-			fmt.Printf("next")
 		}
 	}()
 	<- consumer.ready
-	log.Printf ("worker %d up and running.", wId)
+	log.Printf ("worker %d up and running.", consumer.Id)
 
 	return cancel
 }

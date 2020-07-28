@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
@@ -44,7 +45,7 @@ func NewAsyncProducer() sarama.AsyncProducer {
 type Consumer struct {
 	ready   chan bool
 	Id      int
-	counter chan int
+	counter chan int64
 }
 
 // GenerateMessages is run at the beginning of a new session, before ConsumeClaim
@@ -67,9 +68,12 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	// The `ConsumeClaim` itself is called within a goroutine, see:
 	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
 	for message := range claim.Messages() {
-		consumer.counter <- 1
+		start := time.Now()
+		//consumer.counter <- 1
 		//log.Printf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", consumer.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
+		elapsed := time.Since(start)
+		consumer.counter <- elapsed.Nanoseconds()
 	}
 
 	return nil

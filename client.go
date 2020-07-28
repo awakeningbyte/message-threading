@@ -31,7 +31,7 @@ func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c conte
 			return
 		case result := <-producer.Successes():
 			if result != nil {
-				log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
+				// log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
 			} else {
 				c()
 			}
