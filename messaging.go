@@ -16,6 +16,18 @@ func NewConsumerGroup(name string, id int) (sarama.ConsumerGroup, error) {
 	config.Version,_ = sarama.ParseKafkaVersion("2.1.1")
 	return sarama.NewConsumerGroup(brokerList, name, config)
 }
+func NewSyncProducer() sarama.SyncProducer {
+	brokerList := strings.Split(os.Getenv("brokers"), ",")
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Producer.Return.Errors = true
+	producer, err := sarama.NewSyncProducer(brokerList, config)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to start order producer")
+	}
+
+	return producer
+}
 func NewAsyncProducer() sarama.AsyncProducer {
 	brokerList := strings.Split(os.Getenv("brokers"), ",")
 	config := sarama.NewConfig()
@@ -30,8 +42,9 @@ func NewAsyncProducer() sarama.AsyncProducer {
 }
 
 type Consumer struct {
-	ready chan bool
-	Id int
+	ready   chan bool
+	Id      int
+	counter chan int
 }
 
 // GenerateMessages is run at the beginning of a new session, before ConsumeClaim
@@ -54,7 +67,8 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	// The `ConsumeClaim` itself is called within a goroutine, see:
 	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
 	for message := range claim.Messages() {
-		log.Printf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", consumer.Id, string(message.Value) , message.Timestamp, message.Topic)
+		consumer.counter <- 1
+		//log.Printf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", consumer.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
 	}
 

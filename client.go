@@ -11,18 +11,19 @@ import (
 	"github.com/google/uuid"
 )
 
-func GenerateMessages() {
+func GenerateMessages(n,m int) {
 	clientWg := sync.WaitGroup{}
 
-	for id := range [3]int{} {
+	for id := 0; id < n; id++ {
 		clientWg.Add(1)
 		go func(id int) {
-			client(id, &clientWg)
+			client(id,m, &clientWg)
 		}(id)
 	}
 
 	clientWg.Wait()
 }
+
 func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c context.CancelFunc) {
 	for {
 		select {
@@ -44,13 +45,13 @@ func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c conte
 		}
 	}
 }
-func client(id int, wg *sync.WaitGroup) {
+func client(id int, m int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 	producer := NewAsyncProducer()
 	go ProcessResponse(producer, ctx, cancel)
 	defer cancel()
-	for seqNum := 0; seqNum < 10; seqNum++ {
+	for seqNum := 0; seqNum < m; seqNum++ {
 		message := ChatMessage{
 			UserId:    id,
 			Content:   uuid.New().String(), // random text

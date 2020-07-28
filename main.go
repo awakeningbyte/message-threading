@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -12,33 +13,35 @@ import (
 
 const (
 	TopicSinglePass = "singlepass"
+	TopicComplete   = "Complete"
 	ConsumerGroupId = "workers1"
 )
 
 type ChatMessage struct {
-	UserId int
-	Content string
-	SeqNum int
+	UserId    int
+	Content   string
+	SeqNum    int
 	TimeStamp time.Time
 }
 
 func main() {
-	//generate mock client-side messages
-	GenerateMessages()
+	// generate mock client-side messages
+	GenerateMessages(3, 3)
 
-	//threading messages
-	ProcessThreads()
+	// threading messages
+	ProcessThreads(3)
 }
 
-func ProcessThreads() {
+func ProcessThreads(n int) {
 	log.Printf("bentchmark message processing")
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
-	for wId := range [1]int{} {
+	counter := make(chan int)
+	for wId := 0; wId < n; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(workersWg, wId, ConsumerGroupId)
+			cFunc := Worker(workersWg, wId, counter, ConsumerGroupId)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()
@@ -60,6 +63,26 @@ func ProcessThreads() {
 		done <- true
 	}()
 
-	<-done
-}
+	heartbeat := time.After(1 * time.Second)
+	total := 0
+	for {
+		select {
 
+		case <-done:
+			return
+		case <-heartbeat:
+			if len(cancels) < n {
+				heartbeat = time.After(1 * time.Second)
+			} else {
+				fmt.Printf("stop processing. total %d message processed", total)
+				return
+
+			}
+		case c := <-counter:
+			total = total + c
+			heartbeat = time.After(1 * time.Second)
+
+		}
+
+	}
+}
