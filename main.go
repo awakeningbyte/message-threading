@@ -61,7 +61,9 @@ func ProcessThreads(n int) {
 	}()
 
 	heartbeat := time.After(1 * time.Second)
-	total := int64(0)
+	workerReadyTime := new(int)
+	totalProcessingTime := int64(0)
+	totalExecutionTime := int(0)
 	count := 0
 	for {
 		select {
@@ -70,15 +72,20 @@ func ProcessThreads(n int) {
 			return
 		case <-heartbeat:
 			if len(cancels) < n {
-				heartbeat = time.After(1 * time.Second)
+				heartbeat = time.After(2 * time.Second)
 			} else {
-				fmt.Printf("stop processing. message count: %d, total processing time: %d miliseconds.\n", count, total / 1000)
+				totalExecutionTime = time.Now().Nanosecond() - *workerReadyTime
+				fmt.Printf("stop processing.  message count: %d, total threading execution time: %d,total processing time: %d miliseconds.\n", count, totalExecutionTime / 1000000000,  totalProcessingTime/ 1000)
 				return
 			}
 		case c := <-counter:
-			count = count +1
-			total = total + c
 			heartbeat = time.After(1 * time.Second)
+			if workerReadyTime == nil {
+				wt := time.Now().Nanosecond()
+				workerReadyTime = &wt
+			}
+			count = count +1
+			totalProcessingTime = totalProcessingTime + c
 		}
 	}
 }
