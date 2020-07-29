@@ -45,17 +45,17 @@ func NewAsyncProducer() sarama.AsyncProducer {
 type Consumer struct {
 	ready   chan bool
 	Id      int
-	counter chan int64
+	counter chan <-int64
 }
 
-// GenerateMessages is run at the beginning of a new session, before ConsumeClaim
+// GenerateMessages is Run at the beginning of a new session, before ConsumeClaim
 func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
 	// Mark the consumer as ready
 	close(consumer.ready)
 	return nil
 }
 
-// Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
+// Cleanup is Run at the end of a session, once all ConsumeClaim goroutines have exited
 func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 	return nil
 }
@@ -69,7 +69,6 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
 	for message := range claim.Messages() {
 		start := time.Now()
-		//consumer.counter <- 1
 		//log.Printf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", consumer.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
 		elapsed := time.Since(start)

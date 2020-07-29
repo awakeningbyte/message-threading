@@ -4,11 +4,10 @@ import (
 	"context"
 	"log"
 	"strings"
-	"sync"
 )
 
-func Worker(wg sync.WaitGroup, wId int, counter chan int64, groupId string) context.CancelFunc {
-	log.Printf("worker %d start processing messages", wId)
+func Worker( wId int, counter chan <-int64, groupId string) context.CancelFunc {
+	// log.Printf("worker %d start processing messages", wId)
 	group, err := NewConsumerGroup(groupId, wId)
 	if err != nil {
 		panic(err)
@@ -20,7 +19,6 @@ func Worker(wg sync.WaitGroup, wId int, counter chan int64, groupId string) cont
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		defer wg.Done()
 		for {
 
 			if err := group.Consume(ctx, strings.Split(TopicSinglePass, ","), &consumer); err != nil {
