@@ -27,7 +27,7 @@ func main() {
 	SetupWorkers(3, counter)
 	GenerateMessages(3, 3)
 	msgCount, processingTime := Run(counter)
-	fmt.Printf("message count: %d, processing time: %d", msgCount, processingTime)
+	fmt.Printf("message count: %d, processing time: %d sec", msgCount, processingTime/1000)
 
 }
 
@@ -58,7 +58,7 @@ func SetupWorkers(n int, counter chan <-int64) {
 }
 
 func Run(counter <-chan int64) (int, int64) {
-	timeout := time.After(1 * time.Second)
+	timeout := time.After(2 * time.Second)
 	totalProcessingTime := int64(0)
 	count := 0
 	for {
@@ -66,7 +66,7 @@ func Run(counter <-chan int64) (int, int64) {
 		case <-timeout:
 			return count,totalProcessingTime
 		case c := <-counter:
-			timeout = time.After(1 * time.Second)
+			timeout = time.After(2 * time.Second)
 			count = count +1
 			totalProcessingTime = totalProcessingTime + c
 		}
