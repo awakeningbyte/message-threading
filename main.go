@@ -5,40 +5,65 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	TopicSinglePass = "singlepass"
-	ConsumerGroupId = "workers1"
 )
 
 type ChatMessage struct {
-	UserId    int
-	Content   string
-	SeqNum    int
-	TimeStamp time.Time
+	CorrelationId string
+	Content       string
+	SeqNum        int
+	TimeStamp     time.Time
 }
 
 func main() {
 	counter :=make(chan int64)
-	SetupWorkers(3, counter)
-	GenerateMessages(3, 3)
+	n, err := strconv.Atoi(os.Getenv("ConcurrentCount"))
+	if err!= nil || n < 1{
+		panic("ConcurrentCount is invalid")
+	}
+
+	c, err := strconv.Atoi(os.Getenv("CorrelationCount"))
+	if err!= nil || c < 1 {
+		c = n * 2
+		log.Infof("CorrelationCount is invalid, using %d instead", c)
+	}
+	s, err := strconv.Atoi(os.Getenv("SessionSize"))
+	if err!= nil || c < 1 {
+		s = 100
+		log.Infof("SessionSize is invalid, using %d instead", s)
+	}
+	settings := Settings{
+		ConcurrentCount:  n,
+		Brokers:          os.Getenv("Brokers"),
+		Topic:            os.Getenv("Topic"),
+		GroupId:          os.Getenv("GroupId"),
+		CorrelationCount: c,
+		SessionSize:      s,
+	}
+	SetupWorkers(settings, counter)
+	GenerateMessages(settings)
 	msgCount, processingTime := Run(counter)
 	fmt.Printf("message count: %d, processing time: %d sec", msgCount, processingTime/1000)
 
 }
 
-func SetupWorkers(n int, counter chan <-int64) {
+func SetupWorkers(settings Settings, counter chan <-int64) {
+	topics := []string {settings.Topic}
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
-	for wId := 0; wId < n; wId++ {
+	for wId := 0; wId < settings.ConcurrentCount; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(id, counter, ConsumerGroupId)
+			cFunc := Worker(id, counter, settings.GroupId, topics)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()
