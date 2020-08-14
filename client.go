@@ -83,24 +83,26 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 				TimeStamp:     time.Now(),
 			}
 
-			Dispatch(producer, &message, s.Topic)
+			Dispatch(idx, producer, &message, s.Topic)
 		}
 
 	}
 	producer.Close()
 }
 
-func Dispatch(producer sarama.AsyncProducer, message *ChatMessage, topic string) {
+func Dispatch(idx int, producer sarama.AsyncProducer, message *ChatMessage, topic string) {
 	v, _ := json.Marshal(*message)
 	producer.Input() <- &sarama.ProducerMessage{
 		Topic:     topic,
 		Value:     sarama.StringEncoder(v),
 		Timestamp: time.Time{},
+		//Key: sarama.StringEncoder(strconv.Itoa(idx)),
+		Partition: int32(idx),
 	}
 	select {
 	case result := <-producer.Successes():
 		if result != nil {
-			log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
+			//log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
 		}
 
 	case err := <-producer.Errors():

@@ -21,6 +21,7 @@ func NewAsyncProducer(s Settings) sarama.AsyncProducer {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
+	config.Producer.Partitioner = sarama.NewManualPartitioner
 	producer, err := sarama.NewAsyncProducer(brokerList, config)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to start order producer")
