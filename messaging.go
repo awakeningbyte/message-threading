@@ -73,43 +73,58 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 	messageThreadsGrouped := make(map[string][]ChatMessage, 0)
 
 	go func() {
-		select {
-		case <-groupCreationTimeout: // assert all message consumed, nothing left over
-			if len(messageThreadsPendingGroup) > 0 {
-				panic("there are messages pending for too long")
-			}
-		case <-passThroughMessageInterval:
-			for k, v := range messageThreadsGrouped {
-				flushMessages(k, v)
-			}
-			messageThreadsGrouped = make(map[string][]ChatMessage, 0)
-			passThroughMessageInterval = time.After(time.Millisecond * 500)
-		case m := <-startCorrelationGroup:
-			log.Infof("start group %s", m.CorrelationId)
-			createGroupContext(m.CorrelationId, groupCreationComplete)
-			messageThreadsPendingGroup[m.CorrelationId] = make([]ChatMessage, 0)
-			groupCreationTimeout = time.After(time.Second * 5)
-		case m := <-appendToCorrelationGroup:
-			q := messageThreadsPendingGroup[m.CorrelationId]
-			messageThreadsPendingGroup[m.CorrelationId] = append(q, m)
-			groupCreationTimeout = time.After(time.Second * 5)
-		case e := <-groupCreationComplete:
-			if e.err != nil {
-				createGroupContext(e.groupId, groupCreationComplete) // retry
-			} else {
-				r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
-				if r.Err() != nil {
-					panic(r.Err())
+		for {
+			if session.Context().Err() != nil {
+				if len(messageThreadsGrouped) > 0 {
+					for k, v := range messageThreadsGrouped {
+						flushMessages(k, v)
+					}
 				}
-				flushMessages(e.groupId, messageThreadsPendingGroup[e.correlatedId])
-				delete(messageThreadsPendingGroup, e.groupId)
+				if len(messageThreadsPendingGroup) > 0 {
+					log.Errorf("consumer shut down with %d groups pending creation")
+				}
+
+				log.Infof("consumer done.")
 			}
-		case g := <-sequentialProcess:
-			_, ok := messageThreadsGrouped[g.groupId]
-			if !ok {
-				messageThreadsGrouped[g.groupId]= make([]ChatMessage,0)
+			select {
+			case <-groupCreationTimeout: // assert all message consumed, nothing left over
+				if len(messageThreadsPendingGroup) > 0 {
+					panic("there are messages pending for too long")
+				}
+				groupCreationTimeout = time.After(time.Second * 5)
+			case <-passThroughMessageInterval:
+				for k, v := range messageThreadsGrouped {
+					flushMessages(k, v)
+				}
+				messageThreadsGrouped = make(map[string][]ChatMessage, 0)
+				passThroughMessageInterval = time.After(time.Millisecond * 500)
+			case m := <-startCorrelationGroup:
+				log.Infof("start group %s", m.CorrelationId)
+				createGroupContext(m.CorrelationId, groupCreationComplete)
+				messageThreadsPendingGroup[m.CorrelationId] = make([]ChatMessage, 0)
+				groupCreationTimeout = time.After(time.Second * 5)
+			case m := <-appendToCorrelationGroup:
+				q := messageThreadsPendingGroup[m.CorrelationId]
+				messageThreadsPendingGroup[m.CorrelationId] = append(q, m)
+				groupCreationTimeout = time.After(time.Second * 5)
+			case e := <-groupCreationComplete:
+				if e.err != nil {
+					createGroupContext(e.groupId, groupCreationComplete) // retry
+				} else {
+					r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
+					if r.Err() != nil {
+						panic(r.Err())
+					}
+					flushMessages(e.groupId, messageThreadsPendingGroup[e.correlatedId])
+					delete(messageThreadsPendingGroup, e.groupId)
+				}
+			case g := <-sequentialProcess:
+				_, ok := messageThreadsGrouped[g.groupId]
+				if !ok {
+					messageThreadsGrouped[g.groupId] = make([]ChatMessage, 0)
+				}
+				messageThreadsGrouped[g.groupId] = append(messageThreadsGrouped[g.groupId], g.m)
 			}
-			messageThreadsGrouped[g.groupId] = append(messageThreadsGrouped[g.groupId], g.m)
 		}
 	}()
 
