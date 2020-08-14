@@ -64,7 +64,7 @@ func SetupWorkers(settings Settings, counter chan <-int64) {
 	for wId := 0; wId < settings.ConcurrentCount; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(id, counter, settings)
+			cFunc := Worker(id, counter, settings, redisClient)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()

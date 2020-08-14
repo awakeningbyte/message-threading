@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"log"
+
+	"github.com/go-redis/redis"
 )
 
-func Worker( wId int, counter chan <-int64, s Settings) context.CancelFunc {
+func Worker(wId int, counter chan<- int64, s Settings, rdb *redis.Client) context.CancelFunc {
 	// log.Printf("worker %d start processing messages", wId)
 	group, err := NewConsumerGroup(s)
 	if err != nil {
@@ -15,6 +17,7 @@ func Worker( wId int, counter chan <-int64, s Settings) context.CancelFunc {
 		ready: make(chan bool),
 		Id: wId,
 		counter: counter,
+		rdb: rdb,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
