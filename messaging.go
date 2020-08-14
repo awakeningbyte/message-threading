@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
+	"os"
+	"path"
+	"sort"
 	"strings"
 	"time"
-	"math/rand"
+
 	"github.com/Shopify/sarama"
 	"github.com/go-redis/redis"
 	log "github.com/sirupsen/logrus"
@@ -62,7 +66,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 	appendToCorrelationGroup := make(chan ChatMessage)
 	groupCreationComplete := make(chan struct {
 		correlatedId string
-		groupId string
+		groupId *string
 		err     error
 	})
 	sequentialProcess := make(chan struct {
@@ -81,7 +85,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					}
 				}
 				if len(messageThreadsPendingGroup) > 0 {
-					log.Errorf("consumer shut down with %d groups pending creation")
+					log.Errorf("consumer shut down with %d groups pending creation", len(messageThreadsPendingGroup))
 				}
 
 				log.Infof("consumer done.")
@@ -109,14 +113,14 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				groupCreationTimeout = time.After(time.Second * 5)
 			case e := <-groupCreationComplete:
 				if e.err != nil {
-					createGroupContext(e.groupId, groupCreationComplete) // retry
+					createGroupContext(*e.groupId, groupCreationComplete) // retry
 				} else {
 					r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
 					if r.Err() != nil {
 						panic(r.Err())
 					}
-					flushMessages(e.groupId, messageThreadsPendingGroup[e.correlatedId])
-					delete(messageThreadsPendingGroup, e.groupId)
+					flushMessages(*e.groupId, messageThreadsPendingGroup[e.correlatedId])
+					delete(messageThreadsPendingGroup, *e.groupId)
 				}
 			case g := <-sequentialProcess:
 				_, ok := messageThreadsGrouped[g.groupId]
@@ -169,12 +173,34 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 }
 
 func flushMessages(id string, messages []ChatMessage) {
+	sort.SliceStable(messages, func(i, j int) bool {
+		return messages[i].SeqNum < messages[j].SeqNum
+	})
+
+	filename := path.Join(".","output",id)
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, m := range messages {
+		if _, err := f.WriteString(fmt.Sprintf("%s:%d",m.CorrelationId, m.SeqNum)); err != nil {
+			panic(err)
+		}
+	}
+	defer f.Close()
 
 }
-
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
 func createGroupContext(id string, complete chan<- struct {
 	correlatedId string
-	groupId string
+	groupId *string
 	err     error
 }) {
 	rand.Seed(123) // const seed for benchmark consisting
@@ -185,14 +211,15 @@ func createGroupContext(id string, complete chan<- struct {
 	if delay-(delay/13)*13 == 0 {
 		complete <- struct {
 			correlatedId string
-			groupId string
+			groupId *string
 			err     error
 		}{correlatedId: id, groupId: nil, err: errors.New("configured error")}
 	} else {
+		groupId := fmt.Sprintf("group-%s", id)
 		complete <- struct {
 			correlatedId string
-			groupId string
+			groupId *string
 			err     error
-		}{correlatedId: id, groupId: fmt.Sprintf("group-%s", id), err: nil}
+		}{correlatedId: id, groupId: &groupId, err: nil}
 	}
 }

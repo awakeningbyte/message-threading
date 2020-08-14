@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 var counter =make(chan int64)
@@ -15,6 +17,8 @@ SessionSize:      100,
 RedisAddr: "localhost:6379",
 }
 func TestMain(m *testing.M) {
+	output := filepath.Join(".", "output")
+	os.MkdirAll(output, os.ModePerm)
 	SetupWorkers(settings, counter)
 	m.Run()
 }
