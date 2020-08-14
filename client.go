@@ -102,7 +102,7 @@ func Dispatch(idx int, producer sarama.AsyncProducer, message *ChatMessage, topi
 	select {
 	case result := <-producer.Successes():
 		if result != nil {
-			//log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
+			log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
 		}
 
 	case err := <-producer.Errors():

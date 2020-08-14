@@ -61,13 +61,13 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	groupCreationTimeout := time.After(time.Second * 5)
-	passThroughMessageInterval := time.After(time.Millisecond * 500)
+	passThroughMessageInterval := time.After(time.Millisecond * 5000000)
 	startCorrelationGroup := make(chan ChatMessage)
 	appendToCorrelationGroup := make(chan ChatMessage)
 	groupCreationComplete := make(chan struct {
 		correlatedId string
-		groupId *string
-		err     error
+		groupId      *string
+		err          error
 	})
 	sequentialProcess := make(chan struct {
 		groupId string
@@ -75,6 +75,24 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 	})
 	messageThreadsPendingGroup := make(map[string][]ChatMessage, 0)
 	messageThreadsGrouped := make(map[string][]ChatMessage, 0)
+	go func() {
+		for {
+			e := <-groupCreationComplete
+			if e.err != nil {
+				log.Infof("group created failed %s: %s, retry", *e.groupId, e.correlatedId)
+				c.rdb.Del("lock-"+e.correlatedId)
+				c.createGroupContext(*e.groupId, groupCreationComplete) // retry
+			} else {
+				log.Infof("group created %s: %s", *e.groupId, e.correlatedId)
+				r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
+				if r.Err() != nil {
+					panic(r.Err())
+				}
+				flushMessages(*e.groupId, messageThreadsPendingGroup[e.correlatedId])
+				delete(messageThreadsPendingGroup, *e.groupId)
+			}
+		}
+	}()
 
 	go func() {
 		for {
@@ -90,13 +108,16 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 
 				log.Infof("consumer done.")
 			}
+			defer close(groupCreationComplete)
 			select {
 			case <-groupCreationTimeout: // assert all message consumed, nothing left over
+				log.Info("group creation timeout")
 				if len(messageThreadsPendingGroup) > 0 {
 					panic("there are messages pending for too long")
 				}
 				groupCreationTimeout = time.After(time.Second * 5)
 			case <-passThroughMessageInterval:
+				log.Info("passThroughMessageInterval triggeredS")
 				for k, v := range messageThreadsGrouped {
 					flushMessages(k, v)
 				}
@@ -104,24 +125,14 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				passThroughMessageInterval = time.After(time.Millisecond * 500)
 			case m := <-startCorrelationGroup:
 				log.Infof("start group %s", m.CorrelationId)
-				createGroupContext(m.CorrelationId, groupCreationComplete)
 				messageThreadsPendingGroup[m.CorrelationId] = make([]ChatMessage, 0)
+				c.createGroupContext(m.CorrelationId, groupCreationComplete)
 				groupCreationTimeout = time.After(time.Second * 5)
 			case m := <-appendToCorrelationGroup:
+				log.Infof("append message %s: %d", m.CorrelationId, m.SeqNum)
 				q := messageThreadsPendingGroup[m.CorrelationId]
 				messageThreadsPendingGroup[m.CorrelationId] = append(q, m)
 				groupCreationTimeout = time.After(time.Second * 5)
-			case e := <-groupCreationComplete:
-				if e.err != nil {
-					createGroupContext(*e.groupId, groupCreationComplete) // retry
-				} else {
-					r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
-					if r.Err() != nil {
-						panic(r.Err())
-					}
-					flushMessages(*e.groupId, messageThreadsPendingGroup[e.correlatedId])
-					delete(messageThreadsPendingGroup, *e.groupId)
-				}
 			case g := <-sequentialProcess:
 				_, ok := messageThreadsGrouped[g.groupId]
 				if !ok {
@@ -143,15 +154,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		// check if correlation group is already existing
 		groupId, err := c.rdb.Get(m.CorrelationId).Result()
 		if err == redis.Nil {
-			lock := c.rdb.SetNX(m.CorrelationId, m.SeqNum, time.Second*5)
-			if lock.Err() != nil {
-				panic(lock.Err())
-			}
-
-			if lock.Val() == true {
-				startCorrelationGroup <- m
-			}
-
+			startCorrelationGroup <- m
 			appendToCorrelationGroup <- m
 
 		} else if err != nil {
@@ -177,49 +180,52 @@ func flushMessages(id string, messages []ChatMessage) {
 		return messages[i].SeqNum < messages[j].SeqNum
 	})
 
-	filename := path.Join(".","output",id)
+	filename := path.Join(".", "output", id)
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, m := range messages {
-		if _, err := f.WriteString(fmt.Sprintf("%s:%d",m.CorrelationId, m.SeqNum)); err != nil {
+		if _, err := f.WriteString(fmt.Sprintf("%s:%d", m.CorrelationId, m.SeqNum)); err != nil {
 			panic(err)
 		}
 	}
 	defer f.Close()
 
 }
-func fileExists(filename string) bool {
-	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}
-func createGroupContext(id string, complete chan<- struct {
+func (c *Consumer) createGroupContext(id string, complete chan<- struct {
 	correlatedId string
-	groupId *string
-	err     error
+	groupId      *string
+	err          error
 }) {
+
+	lock := c.rdb.SetNX("lock-"+id, true, 0)
+	if lock.Err() != nil {
+		panic(lock.Err())
+	}
+
+	if lock.Val() == false {
+		return
+	}
+
 	rand.Seed(123) // const seed for benchmark consisting
-	delay := rand.Intn(2000)
+	delay := rand.Intn(1000)
 
 	time.Sleep(time.Millisecond * time.Duration(delay))
 
 	if delay-(delay/13)*13 == 0 {
 		complete <- struct {
 			correlatedId string
-			groupId *string
-			err     error
+			groupId      *string
+			err          error
 		}{correlatedId: id, groupId: nil, err: errors.New("configured error")}
 	} else {
 		groupId := fmt.Sprintf("group-%s", id)
 		complete <- struct {
 			correlatedId string
-			groupId *string
-			err     error
+			groupId      *string
+			err          error
 		}{correlatedId: id, groupId: &groupId, err: nil}
 	}
 }

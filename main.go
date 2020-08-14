@@ -79,8 +79,8 @@ func SetupWorkers(settings Settings, counter chan <-int64, redisClient *redis.Cl
 	workersWg.Wait()
 }
 
-func Run(counter <-chan int64) (int, int64) {
-	timeout := time.After(2 * time.Second)
+func Run(counter <-chan int64, t int) (int, int64) {
+	timeout := time.After(time.Duration(t) * time.Second)
 	totalProcessingTime := int64(0)
 	count := 0
 	for {
@@ -88,7 +88,7 @@ func Run(counter <-chan int64) (int, int64) {
 		case <-timeout:
 			return count,totalProcessingTime
 		case c := <-counter:
-			timeout = time.After(2 * time.Second)
+			timeout = time.After(time.Duration(t) * time.Second)
 			count = count +1
 			totalProcessingTime = totalProcessingTime + c
 		}
