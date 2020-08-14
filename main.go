@@ -56,7 +56,8 @@ func main() {
 }
 
 func SetupWorkers(settings Settings, counter chan <-int64) {
-	//topics := []string {settings.Topic}
+	redisClient := CreateRedis(settings.RedisAddr)
+	defer redisClient.Close()
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}

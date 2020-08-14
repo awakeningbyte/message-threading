@@ -12,6 +12,7 @@ Topic:            "Incoming",
 GroupId:          "BenchmarkConsumers",
 CorrelationCount: 12,
 SessionSize:      100,
+RedisAddr: "localhost:6379",
 }
 func TestMain(m *testing.M) {
 	SetupWorkers(settings, counter)

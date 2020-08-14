@@ -7,4 +7,5 @@ type Settings struct {
 	GroupId          string
 	CorrelationCount int
 	SessionSize      int
+	RedisAddr        string
 }
