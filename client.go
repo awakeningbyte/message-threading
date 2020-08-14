@@ -43,16 +43,28 @@ func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c conte
 			} else {
 				c()
 			}
-		}
+			select {
+			case <-ctx.Done():
+				return
+			case result := <-producer.Successes():
+				if result != nil {
+					// log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
+				} else {
+					c()
+				}
+
+			case err := <-producer.Errors():
+				if err != nil {
+					log.Println("Failed to produce message", err)
+				} else {
+					c()
+				}
+			}}
 	}
 }
 func client(idx int, s Settings,  wg *sync.WaitGroup) {
 	defer wg.Done()
-	ctx, cancel := context.WithCancel(context.Background())
 	producer := NewAsyncProducer(s)
-	go ProcessResponse(producer, ctx, cancel)
-	defer cancel()
-
 	blockSize := (s.CorrelationCount / s.ConcurrentCount)
 	if blockSize * s.ConcurrentCount <  s.CorrelationCount {
 		blockSize = blockSize + 1
@@ -75,8 +87,7 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 		}
 
 	}
-	producer.AsyncClose()
-	<-ctx.Done()
+	producer.Close()
 }
 
 func Dispatch(producer sarama.AsyncProducer, message *ChatMessage, topic string) {
@@ -85,5 +96,16 @@ func Dispatch(producer sarama.AsyncProducer, message *ChatMessage, topic string)
 		Topic:     topic,
 		Value:     sarama.StringEncoder(v),
 		Timestamp: time.Time{},
+	}
+	select {
+	case result := <-producer.Successes():
+		if result != nil {
+			log.Printf("> message: \"%s\" sent to partition  %d at offset %d\n", result.Value, result.Partition, result.Offset)
+		}
+
+	case err := <-producer.Errors():
+		if err != nil {
+			log.Println("Failed to produce message", err)
+		}
 	}
 }
