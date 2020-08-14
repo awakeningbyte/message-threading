@@ -2,15 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -23,41 +21,39 @@ type ChatMessage struct {
 	TimeStamp     time.Time
 }
 
-func main() {
-	counter :=make(chan int64)
-	n, err := strconv.Atoi(os.Getenv("ConcurrentCount"))
-	if err!= nil || n < 1{
-		panic("ConcurrentCount is invalid")
-	}
+// func main() {
+// 	counter :=make(chan int64)
+// 	n, err := strconv.Atoi(os.Getenv("ConcurrentCount"))
+// 	if err!= nil || n < 1{
+// 		panic("ConcurrentCount is invalid")
+// 	}
+//
+// 	c, err := strconv.Atoi(os.Getenv("CorrelationCount"))
+// 	if err!= nil || c < 1 {
+// 		c = n * 2
+// 		log.Infof("CorrelationCount is invalid, using %d instead", c)
+// 	}
+// 	s, err := strconv.Atoi(os.Getenv("SessionSize"))
+// 	if err!= nil || c < 1 {
+// 		s = 100
+// 		log.Infof("SessionSize is invalid, using %d instead", s)
+// 	}
+// 	settings := Settings{
+// 		ConcurrentCount:  n,
+// 		Brokers:          os.Getenv("Brokers"),
+// 		Topic:            os.Getenv("Topic"),
+// 		GroupId:          os.Getenv("GroupId"),
+// 		CorrelationCount: c,
+// 		SessionSize:      s,
+// 	}
+// 	SetupWorkers(settings, counter)
+// 	GenerateMessages(settings)
+// 	msgCount, processingTime := Run(counter)
+// 	fmt.Printf("message count: %d, processing time: %d sec", msgCount, processingTime/1000)
+//
+// }
 
-	c, err := strconv.Atoi(os.Getenv("CorrelationCount"))
-	if err!= nil || c < 1 {
-		c = n * 2
-		log.Infof("CorrelationCount is invalid, using %d instead", c)
-	}
-	s, err := strconv.Atoi(os.Getenv("SessionSize"))
-	if err!= nil || c < 1 {
-		s = 100
-		log.Infof("SessionSize is invalid, using %d instead", s)
-	}
-	settings := Settings{
-		ConcurrentCount:  n,
-		Brokers:          os.Getenv("Brokers"),
-		Topic:            os.Getenv("Topic"),
-		GroupId:          os.Getenv("GroupId"),
-		CorrelationCount: c,
-		SessionSize:      s,
-	}
-	SetupWorkers(settings, counter)
-	GenerateMessages(settings)
-	msgCount, processingTime := Run(counter)
-	fmt.Printf("message count: %d, processing time: %d sec", msgCount, processingTime/1000)
-
-}
-
-func SetupWorkers(settings Settings, counter chan <-int64) {
-	redisClient := CreateRedis(settings.RedisAddr)
-	defer redisClient.Close()
+func SetupWorkers(settings Settings, counter chan <-int64, redisClient *redis.Client) {
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
