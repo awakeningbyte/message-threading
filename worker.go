@@ -5,9 +5,9 @@ import (
 	"log"
 )
 
-func Worker( wId int, counter chan <-int64, groupId string, topics []string) context.CancelFunc {
+func Worker( wId int, counter chan <-int64, s Settings) context.CancelFunc {
 	// log.Printf("worker %d start processing messages", wId)
-	group, err := NewConsumerGroup(groupId, wId)
+	group, err := NewConsumerGroup(s)
 	if err != nil {
 		panic(err)
 	}
@@ -20,7 +20,7 @@ func Worker( wId int, counter chan <-int64, groupId string, topics []string) con
 	go func() {
 		for {
 
-			if err := group.Consume(ctx, topics, &consumer); err != nil {
+			if err := group.Consume(ctx, []string {s.Topic}, &consumer); err != nil {
 				log.Panicf("Error from consumer: %v", err)
 			}
 			// check if context was cancelled, signaling that the consumer should stop

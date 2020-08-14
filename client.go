@@ -46,24 +46,24 @@ func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c conte
 		}
 	}
 }
-func client(idx int, settings Settings,  wg *sync.WaitGroup) {
+func client(idx int, s Settings,  wg *sync.WaitGroup) {
 	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
-	producer := NewAsyncProducer()
+	producer := NewAsyncProducer(s)
 	go ProcessResponse(producer, ctx, cancel)
 	defer cancel()
 
-	blockSize := (settings.CorrelationCount / settings.ConcurrentCount)
-	if blockSize * settings.ConcurrentCount <  settings.CorrelationCount {
+	blockSize := (s.CorrelationCount / s.ConcurrentCount)
+	if blockSize * s.ConcurrentCount <  s.CorrelationCount {
 		blockSize = blockSize + 1
 	}
 	for cId := 0; cId < blockSize; cId++ {
 		correlationId := idx * blockSize + cId
-		if correlationId >= settings.CorrelationCount {
+		if correlationId >= s.CorrelationCount {
 			break
 		}
 
-		for seqNum := 0; seqNum < settings.SessionSize; seqNum++ {
+		for seqNum := 0; seqNum < s.SessionSize; seqNum++ {
 			message := ChatMessage{
 				CorrelationId: fmt.Sprintf("col%d",correlationId),
 				SeqNum:        seqNum,
@@ -71,7 +71,7 @@ func client(idx int, settings Settings,  wg *sync.WaitGroup) {
 				TimeStamp:     time.Now(),
 			}
 
-			Dispatch(producer, &message, settings.Topic)
+			Dispatch(producer, &message, s.Topic)
 		}
 
 	}

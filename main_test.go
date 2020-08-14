@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"testing"
 )
 var counter =make(chan int64)
@@ -15,10 +14,8 @@ CorrelationCount: 99,
 SessionSize:      100,
 }
 func TestMain(m *testing.M) {
-	os.Setenv("brokers", "localhost:29092")
 	SetupWorkers(settings, counter)
 	m.Run()
-	os.Setenv("brokers", "")
 }
 
 func BenchmarkProcessThreads(b *testing.B) {

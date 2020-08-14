@@ -56,14 +56,14 @@ func main() {
 }
 
 func SetupWorkers(settings Settings, counter chan <-int64) {
-	topics := []string {settings.Topic}
+	//topics := []string {settings.Topic}
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)
 	mux := &sync.Mutex{}
 	for wId := 0; wId < settings.ConcurrentCount; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(id, counter, settings.GroupId, topics)
+			cFunc := Worker(id, counter, settings)
 			mux.Lock()
 			cancels = append(cancels, cFunc)
 			mux.Unlock()

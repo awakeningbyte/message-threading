@@ -1,36 +1,23 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
 )
-func NewConsumerGroup(name string, id int) (sarama.ConsumerGroup, error) {
-	brokerList := strings.Split(os.Getenv("brokers"), ",")
+func NewConsumerGroup(s Settings) (sarama.ConsumerGroup, error) {
+	brokerList := strings.Split(s.Brokers, ",")
 	config := sarama.NewConfig()
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Return.Errors = true
 	//config.ClientID = fmt.Sprint("%d", id)
 	config.Version,_ = sarama.ParseKafkaVersion("2.1.1")
-	return sarama.NewConsumerGroup(brokerList, name, config)
+	return sarama.NewConsumerGroup(brokerList, s.GroupId, config)
 }
-func NewSyncProducer() sarama.SyncProducer {
-	brokerList := strings.Split(os.Getenv("brokers"), ",")
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	config.Producer.Return.Errors = true
-	producer, err := sarama.NewSyncProducer(brokerList, config)
-	if err != nil {
-		log.WithError(err).Fatal("Failed to start order producer")
-	}
-
-	return producer
-}
-func NewAsyncProducer() sarama.AsyncProducer {
-	brokerList := strings.Split(os.Getenv("brokers"), ",")
+func NewAsyncProducer(s Settings) sarama.AsyncProducer {
+	brokerList := strings.Split(s.Brokers, ",")
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
