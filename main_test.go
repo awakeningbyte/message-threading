@@ -23,12 +23,13 @@ func TestMain(m *testing.M) {
 	defer redisClient.Close()
 	SetupWorkers(settings, counter, redisClient)
 	m.Run()
+	redisClient.ClusterResetHard()
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
 //	for i:=0;i <b.N;i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 5)
+		msgCount, processingTime := Run(counter, 10)
 		fmt.Printf("message count: %d, processing time: %d\n", msgCount, processingTime)
 //	}
 }

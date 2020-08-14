@@ -61,7 +61,7 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	groupCreationTimeout := time.After(time.Second * 5)
-	passThroughMessageInterval := time.After(time.Millisecond * 5000000)
+	passThroughMessageInterval := time.After(time.Millisecond * 500)
 	startCorrelationGroup := make(chan ChatMessage)
 	appendToCorrelationGroup := make(chan ChatMessage)
 	groupCreationComplete := make(chan struct {
@@ -84,7 +84,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				c.createGroupContext(*e.groupId, groupCreationComplete) // retry
 			} else {
 				log.Infof("group created %s: %s", *e.groupId, e.correlatedId)
-				r := c.rdb.SetNX(e.correlatedId, e.groupId, 0)
+				r := c.rdb.SetNX(e.correlatedId, *e.groupId, 10 * time.Second)
 				if r.Err() != nil {
 					panic(r.Err())
 				}
@@ -200,7 +200,7 @@ func (c *Consumer) createGroupContext(id string, complete chan<- struct {
 	err          error
 }) {
 
-	lock := c.rdb.SetNX("lock-"+id, true, 0)
+	lock := c.rdb.SetNX("lock-"+id, true, time.Second * 2)
 	if lock.Err() != nil {
 		panic(lock.Err())
 	}
