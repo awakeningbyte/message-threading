@@ -52,7 +52,6 @@ type ChatMessage struct {
 // 	fmt.Printf("message count: %d, processing time: %d sec", msgCount, processingTime/1000)
 //
 // }
-
 func SetupWorkers(settings Settings, counter chan <-int64, redisClient *redis.Client) {
 	workersWg := sync.WaitGroup{}
 	cancels := make([]context.CancelFunc, 0)

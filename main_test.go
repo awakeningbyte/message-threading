@@ -17,19 +17,28 @@ SessionSize:      1,
 RedisAddr: "localhost:6379",
 }
 func TestMain(m *testing.M) {
+	//prepare output directory
 	output := filepath.Join(".", "output")
+	os.RemoveAll(output)
 	os.MkdirAll(output, os.ModePerm)
+	//create redis client
 	redisClient := CreateRedis(settings.RedisAddr)
 	defer redisClient.Close()
+
+	//setup workers
 	SetupWorkers(settings, counter, redisClient)
+
+	//run benchmark
 	m.Run()
+
+	//clean redis cache
 	redisClient.ClusterResetHard()
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
 //	for i:=0;i <b.N;i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 10)
+		msgCount, processingTime := Run(counter, 3)
 		fmt.Printf("message count: %d, processing time: %d\n", msgCount, processingTime)
 //	}
 }
