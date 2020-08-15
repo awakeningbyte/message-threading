@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/go-redis/redis"
 )
@@ -34,7 +35,7 @@ func Worker(wId int, counter chan<- int64, s Settings, rdb *redis.Client) contex
 		}
 	}()
 	<- consumer.ready
-	log.Printf ("worker %d up and running.", consumer.Id)
+	log.Debugf("worker %d up and running.", consumer.Id)
 
 	return cancel
 }

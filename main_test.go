@@ -12,8 +12,8 @@ ConcurrentCount:  6,
 Brokers:          "localhost:29092",
 Topic:            "Incoming",
 GroupId:          "BenchmarkConsumers",
-CorrelationCount: 1,
-SessionSize:      4,
+CorrelationCount: 10,
+SessionSize:      100,
 RedisAddr: "localhost:6379",
 }
 func TestMain(m *testing.M) {
@@ -36,9 +36,9 @@ func TestMain(m *testing.M) {
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
-//	for i:=0;i <b.N;i++ {
+	for i:=0;i <b.N;i++ {
 		GenerateMessages(settings)
 		msgCount, processingTime := Run(counter, 3)
-		fmt.Printf("message count: %d, processing time: %d\n", msgCount, processingTime)
-//	}
+		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
+	}
 }
