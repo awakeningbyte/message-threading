@@ -63,7 +63,7 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	//groupCreationTimeout := time.After(time.Second * 5)
 	passThroughMessageInterval := time.After(time.Millisecond * 1000)
-	startCorrelationGroup := make(chan ChatMessage)
+	//startCorrelationGroup := make(chan ChatMessage)
 	appendToCorrelationGroup := make(chan ChatMessage)
 	groupCreationComplete := make(chan struct {
 		correlatedId string
@@ -84,15 +84,15 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 			case e := <-groupCreationComplete:
 				if e.err != nil {
 					log.Warnf("group created failed %s: %s, retry ...", *e.groupId, e.correlatedId)
-					c.rdb.Del("lock-"+e.correlatedId)
 					go c.createGroupContext(*e.groupId, groupCreationComplete) // retry
 					retryCount++
 					// if retryCount > 5 {
+					//  c.rdb.Del("lock-"+e.correlatedId) // remove lock
 					// 	panic("too much failure & retry")
 					// }
 				} else {
 					log.Infof("group created %s: %s", *e.groupId, e.correlatedId)
-					r := c.rdb.SetNX(e.correlatedId, *e.groupId, 10 * time.Second)
+					r := c.rdb.SetNX(e.correlatedId, *e.groupId, 0)
 					if r.Err() != nil {
 						log.Warn("group id already existing")
 						continue
@@ -109,14 +109,21 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				}
 				messageThreadsGrouped = make(map[string][]ChatMessage, 0)
 				passThroughMessageInterval = time.After(time.Millisecond * 500)
-			case m := <-startCorrelationGroup:
-				log.Infof("start group %s", m.CorrelationId)
-				messageThreadsPendingGroup[m.CorrelationId] = make([]ChatMessage, 0)
-				go c.createGroupContext(m.CorrelationId, groupCreationComplete)
+			//case m := <-startCorrelationGroup:
+			//	log.Infof("start group %s", m.CorrelationId)
+			//	messageThreadsPendingGroup[m.CorrelationId] = make([]ChatMessage, 0)
 			case m := <-appendToCorrelationGroup:
 				log.Infof("append message %s: %d", m.CorrelationId, m.SeqNum)
-				q := messageThreadsPendingGroup[m.CorrelationId]
-				messageThreadsPendingGroup[m.CorrelationId] = append(q, m)
+				//requiring lock,
+				lock := c.rdb.SetNX("lock-"+m.CorrelationId, true, 0)
+				if lock.Err() != nil {
+					panic(lock.Err())
+				}
+
+				if lock.Val() == true {
+					go c.createGroupContext(m.CorrelationId, groupCreationComplete)
+				}
+				messageThreadsPendingGroup[m.CorrelationId] = append(messageThreadsPendingGroup[m.CorrelationId], m)
 			case g := <-sequentialProcess:
 				_, ok := messageThreadsGrouped[g.groupId]
 				if !ok {
@@ -138,7 +145,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		// check if correlation group is already existing
 		groupId, err := c.rdb.Get(m.CorrelationId).Result()
 		if err == redis.Nil {
-			startCorrelationGroup <- m
+			//startCorrelationGroup <- m
 			appendToCorrelationGroup <- m
 
 		} else if err != nil {
@@ -186,14 +193,6 @@ func (c *Consumer) createGroupContext(id string, complete chan<- struct {
 	err          error
 }) {
 
-	lock := c.rdb.SetNX("lock-"+id, true, time.Second * 2)
-	if lock.Err() != nil {
-		panic(lock.Err())
-	}
-
-	if lock.Val() == false {
-		return
-	}
 
 	ctx, _ := context.WithTimeout(context.Background(), time.Second * 2)
 	rand.Seed(123) // const seed for benchmark consisting
