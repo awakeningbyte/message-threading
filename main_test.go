@@ -16,28 +16,28 @@ ConcurrentCount:  6,
 Brokers:          "localhost:29092",
 Topic:            "Incoming",
 GroupId:          "BenchmarkConsumers",
-CorrelationCount: 10,
+CorrelationCount: 30,
 SessionSize:      100,
 RedisAddr: "localhost:6379",
 }
 func TestMain(m *testing.M) {
-	//prepare output directory
+	log.Print("benchmark setup")
 	output := filepath.Join(".", "output")
 	os.RemoveAll(output)
 	os.MkdirAll(output, os.ModePerm)
 	//create redis client
 	redisClient := CreateRedis(settings.RedisAddr)
 	defer redisClient.Close()
-
+	log.Print("setup workers")
 	//setup workers
 	SetupWorkers(settings, counter, redisClient)
 
-	//run benchmark
+	log.Print("running benchmark")
 	m.Run()
 
 	//clean redis cache
 	redisClient.ClusterResetHard()
-	
+	log.Print("checking output correctness")
 	AssertOutputCorrectness(output)
 }
 
