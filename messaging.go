@@ -98,8 +98,14 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						continue
 					}
 
-					flushMessages(*e.groupId, messageCachePendingGroup[e.correlatedId])
-					delete(messageCachePendingGroup, *e.groupId)
+					//MoveToExistingMessagesCache(*e.groupId, e.correlatedId)
+					_, ok := messageCacheExistingGroup[*e.groupId]
+					if !ok {
+						messageCacheExistingGroup[*e.groupId] = make([]ChatMessage, 0)
+					}
+					messageCacheExistingGroup[*e.groupId] = append(messageCacheExistingGroup[*e.groupId], messageCachePendingGroup[e.correlatedId]...)
+
+					delete(messageCachePendingGroup, e.correlatedId)
 				}
 			case <-messageCacheFlushTimeInterval:
 				for k, v := range messageCacheExistingGroup {
@@ -107,12 +113,11 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						flushMessages(k, v)
 						delete(messageCacheExistingGroup, k)
 					} else if len(v) > c.windowSize {
-						log.Warnf("%s:message missing detected, stop processing",k)
+						log.WithField("processing", k).Warn(" message missing, stop proceeding")
 						flushMessages(k, v)
 						delete(messageCacheExistingGroup, k)
-					} else if len(v) > c.windowSize {
 					} else {
-						log.Infof("%s:disorder detected, wait to next round",k)
+						log.WithField("processing", k).Info(" message disorder detected, restoring",k)
 					}
 				}
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)

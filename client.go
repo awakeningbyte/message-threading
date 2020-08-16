@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"sync"
 	"time"
@@ -27,7 +27,7 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 		}
 		for seqNum := 0; seqNum < s.SessionSize; seqNum++ {
 			message := ChatMessage{
-				CorrelationId: fmt.Sprintf("col%d",correlationId),
+				CorrelationId: fmt.Sprintf("col-%d",correlationId),
 				SeqNum:        seqNum,
 				Content:       uuid.New().String(), // random text
 				TimeStamp:     time.Now(),
