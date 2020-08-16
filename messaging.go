@@ -108,11 +108,11 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					delete(messageCachePendingGroup, e.correlatedId)
 				}
 			case <-messageCacheFlushTimeInterval:
+				processed := []string{}
 				for k, v := range messageCacheExistingGroup {
 					if isConsecutive(v) {
 						flushMessages(k, v)
-						delete(messageCacheExistingGroup, k)
-
+						processed = append(processed, k)
 					} else if len(v) > c.windowSize {
 						log.WithField("processing", k).Warn("message missing, proceeding stopped")
 						log.Println(len(messageCachePendingGroup[v[0].CorrelationId]))
@@ -122,6 +122,9 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					} else {
 						//log.WithField("processing", k).Info("disorder detected, restoring.")
 					}
+				}
+				for _, p :=range processed {
+					delete(messageCacheExistingGroup, p)
 				}
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:

@@ -20,9 +20,9 @@ var settings = Settings{
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
 	CorrelationCount:          30,
-	SessionSize:               200,
+	SessionSize:               1000,
 	RedisAddr:                 "localhost:6379",
-	MaxWindowSize:             200,
+	MaxWindowSize:             1000,
 	BufferTime:                500, //100
 	RetryDelay:                2,
 	ErrorInterval:             6,
@@ -36,6 +36,7 @@ func TestMain(m *testing.M) {
 	os.MkdirAll(output, os.ModePerm)
 	// create redis client
 	redisClient := CreateRedis(settings.RedisAddr)
+	redisClient.FlushAll()
 	defer redisClient.Close()
 	log.Print("setup workers")
 	// setup workers
@@ -45,7 +46,6 @@ func TestMain(m *testing.M) {
 	m.Run()
 
 	// clean redis cache
-	redisClient.ClusterResetHard()
 	log.Print("checking output correctness")
 
 	if CheckOutputCorrectness(output) {
