@@ -76,10 +76,11 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		groupId      *string
 		err          error
 	})
+
+
 	retryCount :=0
 	go func() {
 		for {
-			defer close(groupCreationCompleted)
 			select {
 			case e := <-groupCreationCompleted:
 				if e.err != nil {
@@ -91,7 +92,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					// 	panic("too much failure & retry")
 					// }
 				} else {
-					log.Debugf("group created %s: %s", *e.groupId, e.correlatedId)
+					// log.Infof("group created %s: %s", *e.groupId, e.correlatedId)
 					r := c.rdb.SetNX(e.correlatedId, *e.groupId, 0)
 					if r.Err() != nil {
 						log.Warn("group id already existing")
@@ -103,32 +104,42 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					if !ok {
 						messageCacheExistingGroup[*e.groupId] = make([]ChatMessage, 0)
 					}
+
+					log.Infof("moved to existing group cache %s: %s (%d)", *e.groupId, e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
 					messageCacheExistingGroup[*e.groupId] = append(messageCacheExistingGroup[*e.groupId], messageCachePendingGroup[e.correlatedId]...)
 
 					delete(messageCachePendingGroup, e.correlatedId)
+					log.Infof("cache %s: (%d)",  e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
 				}
 			case <-messageCacheFlushTimeInterval:
 				processed := []string{}
 				for k, v := range messageCacheExistingGroup {
+
 					if isConsecutive(v) {
 						flushMessages(k, v)
 						processed = append(processed, k)
 					} else if len(v) > c.windowSize {
 						log.WithField("processing", k).Warn("message missing, proceeding stopped")
-						log.Println(len(messageCachePendingGroup[v[0].CorrelationId]))
 						continue
 						//flushMessages(k, v)
 						//delete(messageCacheExistingGroup, k)
 					} else {
-						//log.WithField("processing", k).Info("disorder detected, restoring.")
+						if  len(messageCacheExistingGroup[k]) == 999 {
+
+							log.WithField("processing", k).Infof("!!! disorder detected, restoring. %d %d %d",
+								len(messageCacheExistingGroup[k]),
+								len(messageCachePendingGroup[v[0].CorrelationId]),
+								messageCachePendingGroup[v[0].CorrelationId][0].SeqNum)
+						}
 					}
 				}
 				for _, p :=range processed {
 					delete(messageCacheExistingGroup, p)
+					//messageCacheExistingGroup[p] = make([]ChatMessage,0)
 				}
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
-				log.Debugf("append message %s: %d", m.CorrelationId, m.SeqNum)
+				//log.Infof("append message %s: %d", m.CorrelationId, m.SeqNum)
 				//make sure message has been added to the cache before calling creatGroupContext()
 				messageCachePendingGroup[m.CorrelationId] = append(messageCachePendingGroup[m.CorrelationId], m)
 
@@ -142,6 +153,9 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					go c.createGroupContext(m.CorrelationId, groupCreationCompleted)
 				}
 			case g := <-addToMessageCacheExistingGroup:
+				// if g.groupId=="group-col-0" {
+				// 	log.Infof("%s : %s : %d added", g.groupId, g.m.CorrelationId, g.m.SeqNum)
+				// }
 				_, ok := messageCacheExistingGroup[g.groupId]
 				if !ok {
 					messageCacheExistingGroup[g.groupId] = make([]ChatMessage, 0)
@@ -159,6 +173,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 			panic(err)
 		}
 
+		//sync block
 		// check if correlation group is already existing
 		groupId, err := c.rdb.Get(m.CorrelationId).Result()
 		if err == redis.Nil {
@@ -189,8 +204,18 @@ func isConsecutive(v []ChatMessage) bool {
 	})
 	for i := n - 1; i > 0; i-- {
 		if v[i].SeqNum != v[i-1].SeqNum +1 {
+			if  n >= 999 {
+				x := v[i].SeqNum-1
+				log.Infof("!!!%s ---  %d : %d, missing %d",v[i].CorrelationId, v[i].SeqNum, v[i-1].SeqNum, x)
+				for pos, y := range v {
+					if y.SeqNum == x {
+						log.Errorf("%d: %d", pos, y.SeqNum)
+					}
+				}
+			}
 			return false
 		}
+
 	}
 	return true
 
