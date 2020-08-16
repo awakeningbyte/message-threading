@@ -10,34 +10,39 @@ import (
 	"strings"
 	"testing"
 )
-var counter =make(chan int64)
+
+var counter = make(chan int64)
 var settings = Settings{
-ConcurrentCount:  6,
-Brokers:          "localhost:29092",
-Topic:            "Incoming",
-GroupId:          "BenchmarkConsumers",
-CorrelationCount: 10,
-SessionSize:      200,
-RedisAddr: "localhost:6379",
-MaxWindowSize: 100,
-BufferTime: 2000,
+	ConcurrentCount:           6,
+	Brokers:                   "localhost:29092",
+	Topic:                     "Incoming",
+	GroupId:                   "BenchmarkConsumers",
+	CorrelationCount:          10,
+	SessionSize:               200,
+	RedisAddr:                 "localhost:6379",
+	MaxWindowSize:             100,
+	BufferTime:                2000,
+	RetryDelay:                11,
+	ErrorInterval:             9,
+	MessageDeliveryTimeWindow: 5,
 }
+
 func TestMain(m *testing.M) {
 	log.Print("benchmark setup")
 	output := filepath.Join(".", "output")
 	os.RemoveAll(output)
 	os.MkdirAll(output, os.ModePerm)
-	//create redis client
+	// create redis client
 	redisClient := CreateRedis(settings.RedisAddr)
 	defer redisClient.Close()
 	log.Print("setup workers")
-	//setup workers
+	// setup workers
 	SetupWorkers(settings, counter, redisClient)
 
 	log.Print("running benchmark")
 	m.Run()
 
-	//clean redis cache
+	// clean redis cache
 	redisClient.ClusterResetHard()
 	log.Print("checking output correctness")
 	AssertOutputCorrectness(output)
@@ -57,7 +62,7 @@ func AssertOutputCorrectness(dir string) {
 	}
 
 }
-func scanFile(name string) (int) {
+func scanFile(name string) int {
 	f, err := os.OpenFile(name, os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		log.Fatalf("open file error: %v", err)
@@ -66,12 +71,12 @@ func scanFile(name string) (int) {
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	count :=0
-	s :=0
+	count := 0
+	s := 0
 	for sc.Scan() {
 		l := sc.Text()
-		c := strings.Split(l,":")
-		if  seqNum, _ := strconv.Atoi(c[1]); seqNum != s {
+		c := strings.Split(l, ":")
+		if seqNum, _ := strconv.Atoi(c[1]); seqNum != s {
 			log.Fatalf("%s: Messages outof order!", name)
 		}
 		count++
@@ -86,7 +91,7 @@ func scanFile(name string) (int) {
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
-	for i:=0;i <b.N;i++ {
+	for i := 0; i < b.N; i++ {
 		GenerateMessages(settings)
 		msgCount, processingTime := Run(counter, 3)
 		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
