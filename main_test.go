@@ -19,11 +19,11 @@ var settings = Settings{
 	Brokers:                   "localhost:29092",
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
-	CorrelationCount:          10,
-	SessionSize:               1000,
+	CorrelationCount:          100,
+	SessionSize:               200,
 	RedisAddr:                 "localhost:6379",
 	MaxWindowSize:             1000,
-	BufferTime:                3000, //100
+	BufferTime:                100, //100
 	RetryDelay:                2,
 	ErrorInterval:             6,
 	MessageDeliveryTimeWindow: 1,
@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 func BenchmarkProcessThreads(b *testing.B) {
 	//for i := 0; i < b.N; i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 8)
+		msgCount, processingTime := Run(counter, 10)
 		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
 	//}
 }

@@ -17,6 +17,22 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func NewPartitionConsumer(s Settings, partition int) (sarama.PartitionConsumer, error) {
+	brokerList := strings.Split(s.Brokers, ",")
+	config := sarama.NewConfig()
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
+	config.Consumer.Return.Errors = true
+	// config.ClientID = fmt.Sprint("%d", id)
+	config.Version, _ = sarama.ParseKafkaVersion("2.1.1")
+
+	cs, err := sarama.NewConsumer(brokerList, config)
+	if err != nil {
+		panic(err)
+	}
+	return cs.ConsumePartition(s.Topic, int32(partition), sarama.OffsetNewest)
+
+}
+
 func NewConsumerGroup(s Settings) (sarama.ConsumerGroup, error) {
 	brokerList := strings.Split(s.Brokers, ",")
 	config := sarama.NewConfig()
@@ -40,8 +56,7 @@ func NewAsyncProducer(s Settings) sarama.AsyncProducer {
 	return producer
 }
 
-type Consumer struct {
-	ready            chan bool
+type Processor struct {
 	Id               int
 	counter          chan<- int64
 	rdb              *redis.Client
@@ -49,20 +64,8 @@ type Consumer struct {
 	windowSize       int
 }
 
-// GenerateMessages is Run at the beginning of a new session, before ConsumeClaim
-func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
-	// Mark the consumer as ready
-	close(consumer.ready)
-	return nil
-}
-
-// Cleanup is Run at the end of a session, once all ConsumeClaim goroutines have exited
-func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
-	return nil
-}
-
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
-func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error {
 	messageCacheFlushTimeInterval := time.After(c.bufferTime)
 	addToMessageCachePendingGroupId := make(chan ChatMessage)
 	addToMessageCacheExistingGroup := make(chan struct {
@@ -105,11 +108,11 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						messageCacheExistingGroup[*e.groupId] = make([]ChatMessage, 0)
 					}
 
-					log.Infof("moved to existing group cache %s: %s (%d)", *e.groupId, e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
+					// log.Infof("moved to existing group cache %s: %s (%d)", *e.groupId, e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
 					messageCacheExistingGroup[*e.groupId] = append(messageCacheExistingGroup[*e.groupId], messageCachePendingGroup[e.correlatedId]...)
 
 					delete(messageCachePendingGroup, e.correlatedId)
-					log.Infof("cache %s: (%d)",  e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
+					// log.Infof("cache %s: (%d)",  e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
 				}
 			case <-messageCacheFlushTimeInterval:
 				processed := []string{}
@@ -124,13 +127,13 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						//flushMessages(k, v)
 						//delete(messageCacheExistingGroup, k)
 					} else {
-						if  len(messageCacheExistingGroup[k]) == 999 {
-
-							log.WithField("processing", k).Infof("!!! disorder detected, restoring. %d %d %d",
-								len(messageCacheExistingGroup[k]),
-								len(messageCachePendingGroup[v[0].CorrelationId]),
-								messageCachePendingGroup[v[0].CorrelationId][0].SeqNum)
-						}
+						// if  len(messageCacheExistingGroup[k]) == 999 {
+						//
+						// 	log.WithField("processing", k).Infof("!!! disorder detected, restoring. %d %d %d",
+						// 		len(messageCacheExistingGroup[k]),
+						// 		len(messageCachePendingGroup[v[0].CorrelationId]),
+						// 		messageCachePendingGroup[v[0].CorrelationId][0].SeqNum)
+						// }
 					}
 				}
 				for _, p :=range processed {
@@ -165,14 +168,13 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		}
 	}()
 
-	for message := range claim.Messages() {
+	for message := range messages {
 		start := time.Now()
 		var m ChatMessage
 		err := json.Unmarshal(message.Value, &m)
-		if err != nil {
+		if err !=nil {
 			panic(err)
 		}
-
 		//sync block
 		// check if correlation group is already existing
 		groupId, err := c.rdb.Get(m.CorrelationId).Result()
@@ -188,8 +190,6 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 			}{groupId: groupId, m: m}
 		}
 
-		log.Debugf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", c.Id, string(message.Value) , message.Timestamp, message.Topic)
-		session.MarkMessage(message, "")
 		elapsed := time.Since(start)
 		c.counter <- elapsed.Nanoseconds()
 	}
@@ -241,7 +241,7 @@ func flushMessages(id string, messages []ChatMessage) {
 	defer f.Close()
 }
 
-func (c *Consumer) createGroupContext(id string, complete chan<- struct {
+func (c *Processor) createGroupContext(id string, complete chan<- struct {
 	correlatedId string
 	groupId      *string
 	err          error

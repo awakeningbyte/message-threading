@@ -1,11 +1,7 @@
 package main
 
 import (
-	"context"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -54,26 +50,13 @@ type ChatMessage struct {
 // }
 func SetupWorkers(settings Settings, counter chan <-int64, redisClient *redis.Client) {
 	workersWg := sync.WaitGroup{}
-	cancels := make([]context.CancelFunc, 0)
-	mux := &sync.Mutex{}
 	for wId := 0; wId < settings.ConcurrentCount; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			cFunc := Worker(id, counter, settings, redisClient)
-			mux.Lock()
-			cancels = append(cancels, cFunc)
-			mux.Unlock()
+			Worker(id, counter, settings, redisClient)
 			defer workersWg.Done()
 		}(wId)
 	}
-	sigterm := make(chan os.Signal, 1)
-	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigterm
-		for _, c := range cancels {
-			c()
-		}
-	}()
 
 	workersWg.Wait()
 }
