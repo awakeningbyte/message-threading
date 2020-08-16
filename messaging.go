@@ -41,10 +41,12 @@ func NewAsyncProducer(s Settings) sarama.AsyncProducer {
 }
 
 type Consumer struct {
-	ready   chan bool
-	Id      int
-	counter chan<- int64
-	rdb     *redis.Client
+	ready            chan bool
+	Id               int
+	counter          chan<- int64
+	rdb              *redis.Client
+	bufferTime       time.Duration
+	windowSize       int
 }
 
 // GenerateMessages is Run at the beginning of a new session, before ConsumeClaim
@@ -61,7 +63,7 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	messageCacheFlushTimeInterval := time.After(time.Millisecond * 6)
+	messageCacheFlushTimeInterval := time.After(c.bufferTime)
 	addToMessageCachePendingGroupId := make(chan ChatMessage)
 	addToMessageCacheExistingGroup := make(chan struct {
 		groupId string
@@ -101,9 +103,15 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				}
 			case <-messageCacheFlushTimeInterval:
 				for k, v := range messageCacheExistingGroup {
-					flushMessages(k, v)
+					if isConsecutive(v) {
+						flushMessages(k, v)
+						delete(messageCacheExistingGroup, k)
+					} else if len(v) > c.windowSize {
+						log.Warn("message missing detected, stop processing")
+					} else {
+						log.Infof("disorder detected, wait to next round")
+					}
 				}
-				messageCacheExistingGroup = make(map[string][]ChatMessage, 0)
 				messageCacheFlushTimeInterval = time.After(time.Millisecond * 500)
 			case m := <-addToMessageCachePendingGroupId:
 				log.Debugf("append message %s: %d", m.CorrelationId, m.SeqNum)
@@ -157,6 +165,20 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 	}
 
 	return nil
+}
+
+func isConsecutive(v []ChatMessage) bool {
+	n := len(v)
+	sort.SliceStable(v, func(i, j int) bool {
+		return v[i].SeqNum < v[j].SeqNum
+	})
+	for i := n - 1; i > 0; i-- {
+		if v[i].SeqNum != v[i-1].SeqNum +1 {
+			return false
+		}
+	}
+	return true
+
 }
 
 func flushMessages(id string, messages []ChatMessage) {

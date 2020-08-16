@@ -16,9 +16,11 @@ ConcurrentCount:  6,
 Brokers:          "localhost:29092",
 Topic:            "Incoming",
 GroupId:          "BenchmarkConsumers",
-CorrelationCount: 100,
+CorrelationCount: 10,
 SessionSize:      200,
 RedisAddr: "localhost:6379",
+MaxWindowSize: 100,
+BufferTime: 2000,
 }
 func TestMain(m *testing.M) {
 	log.Print("benchmark setup")

@@ -8,4 +8,6 @@ type Settings struct {
 	CorrelationCount int
 	SessionSize      int
 	RedisAddr        string
+	MaxWindowSize    int
+	BufferTime       int
 }

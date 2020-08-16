@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -19,6 +20,8 @@ func Worker(wId int, counter chan<- int64, s Settings, rdb *redis.Client) contex
 		Id: wId,
 		counter: counter,
 		rdb: rdb,
+		bufferTime: time.Duration(s.BufferTime) * time.Millisecond,
+		windowSize: s.MaxWindowSize,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
