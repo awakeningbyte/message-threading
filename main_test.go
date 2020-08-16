@@ -17,13 +17,13 @@ var settings = Settings{
 	Brokers:                   "localhost:29092",
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
-	CorrelationCount:          10,
+	CorrelationCount:          1,
 	SessionSize:               200,
 	RedisAddr:                 "localhost:6379",
-	MaxWindowSize:             100,
-	BufferTime:                2000,
-	RetryDelay:                11,
-	ErrorInterval:             9,
+	MaxWindowSize:             20,
+	BufferTime:                500,
+	RetryDelay:                5,
+	ErrorInterval:             6,
 	MessageDeliveryTimeWindow: 5,
 }
 

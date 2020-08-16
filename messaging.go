@@ -107,14 +107,18 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						flushMessages(k, v)
 						delete(messageCacheExistingGroup, k)
 					} else if len(v) > c.windowSize {
-						log.Warn("message missing detected, stop processing")
+						log.Warnf("%s:message missing detected, stop processing",k)
+						flushMessages(k, v)
+						delete(messageCacheExistingGroup, k)
+					} else if len(v) > c.windowSize {
 					} else {
-						log.Infof("disorder detected, wait to next round")
+						log.Infof("%s:disorder detected, wait to next round",k)
 					}
 				}
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
 				log.Debugf("append message %s: %d", m.CorrelationId, m.SeqNum)
+				messageCachePendingGroup[m.CorrelationId] = append(messageCachePendingGroup[m.CorrelationId], m)
 
 				//require lock,
 				lock := c.rdb.SetNX("lock-"+m.CorrelationId, true, 0)
@@ -125,7 +129,6 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				if lock.Val() == true {
 					go c.createGroupContext(m.CorrelationId, groupCreationCompleted)
 				}
-				messageCachePendingGroup[m.CorrelationId] = append(messageCachePendingGroup[m.CorrelationId], m)
 			case g := <-addToMessageCacheExistingGroup:
 				_, ok := messageCacheExistingGroup[g.groupId]
 				if !ok {
@@ -161,7 +164,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		log.Debugf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", c.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
 		elapsed := time.Since(start)
-		c.counter <- elapsed.Nanoseconds()
+		c.counter <- int64(elapsed.Seconds())
 	}
 
 	return nil
