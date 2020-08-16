@@ -17,14 +17,14 @@ var settings = Settings{
 	Brokers:                   "localhost:29092",
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
-	CorrelationCount:          1,
+	CorrelationCount:          10,
 	SessionSize:               200,
 	RedisAddr:                 "localhost:6379",
-	MaxWindowSize:             20,
+	MaxWindowSize:             30,
 	BufferTime:                500,
-	RetryDelay:                5,
+	RetryDelay:                2,
 	ErrorInterval:             6,
-	MessageDeliveryTimeWindow: 5,
+	MessageDeliveryTimeWindow: 1,
 }
 
 func TestMain(m *testing.M) {
@@ -45,28 +45,37 @@ func TestMain(m *testing.M) {
 	// clean redis cache
 	redisClient.ClusterResetHard()
 	log.Print("checking output correctness")
-	AssertOutputCorrectness(output)
+
+	hasError := AssertOutputCorrectness(output)
+	if hasError == true {
+		log.Fatal("Output is incorrect")
+	}
 }
 
-func AssertOutputCorrectness(dir string) {
+func AssertOutputCorrectness(dir string) bool {
 	files, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(files) != settings.CorrelationCount {
 		log.Fatalf("number of output files not match, expected: %d, got: %d", settings.CorrelationCount, len(files))
 	}
-
+	hasError := false
 	for _, o := range files {
-		count := scanFile(o)
+		count, err := scanFile(o)
+		if err != nil {
+			hasError =  true
+			log.Println(err.Error())
+		}
 		if count != settings.SessionSize {
-			log.Fatalf("number of message for %s is incorrect, expected: %d, got: %d", o, settings.SessionSize, count)
+			log.Fatalf("number of message for %s is incorrect, expect: %d, got: %d", o, settings.SessionSize, count)
 		}
 	}
+	return hasError
 
 }
-func scanFile(name string) int {
+func scanFile(name string) (int,error) {
 	f, err := os.OpenFile(name, os.O_RDONLY, os.ModePerm)
 	if err != nil {
-		log.Fatalf("open file error: %v", err)
-		return 0
+		return 0, fmt.Errorf("open file error: %v", err)
+
 	}
 	defer f.Close()
 
@@ -77,17 +86,16 @@ func scanFile(name string) int {
 		l := sc.Text()
 		c := strings.Split(l, ":")
 		if seqNum, _ := strconv.Atoi(c[1]); seqNum != s {
-			log.Fatalf("%s: Messages outof order!", name)
+			log.Printf("%s: Messages outof order! %d : %d", name, s, seqNum)
 		}
 		count++
 		s++
 	}
 	if err := sc.Err(); err != nil {
-		log.Fatalf("scan file error: %v", err)
-		return 0
+		return 0, fmt.Errorf("scan file error: %v", err)
 	}
 
-	return count
+	return count,  nil
 }
 
 func BenchmarkProcessThreads(b *testing.B) {

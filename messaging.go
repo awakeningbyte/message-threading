@@ -118,6 +118,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
 				log.Debugf("append message %s: %d", m.CorrelationId, m.SeqNum)
+				//make sure message has been added to the cache before calling creatGroupContext()
 				messageCachePendingGroup[m.CorrelationId] = append(messageCachePendingGroup[m.CorrelationId], m)
 
 				//require lock,
@@ -164,7 +165,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		log.Debugf("ID: %d, Message claimed: value = %s, timestamp = %v, topic = %s", c.Id, string(message.Value) , message.Timestamp, message.Topic)
 		session.MarkMessage(message, "")
 		elapsed := time.Since(start)
-		c.counter <- int64(elapsed.Seconds())
+		c.counter <- elapsed.Nanoseconds()
 	}
 
 	return nil
