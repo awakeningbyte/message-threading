@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -64,6 +65,7 @@ func ProcessResponse(producer sarama.AsyncProducer, ctx context.Context, c conte
 }
 func client(idx int, s Settings,  wg *sync.WaitGroup) {
 	defer wg.Done()
+	dWg := sync.WaitGroup{}
 	producer := NewAsyncProducer(s)
 	blockSize := (s.CorrelationCount / s.ConcurrentCount)
 	if blockSize * s.ConcurrentCount <  s.CorrelationCount {
@@ -74,7 +76,6 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 		if correlationId >= s.CorrelationCount {
 			break
 		}
-
 		for seqNum := 0; seqNum < s.SessionSize; seqNum++ {
 			message := ChatMessage{
 				CorrelationId: fmt.Sprintf("col%d",correlationId),
@@ -83,10 +84,24 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 				TimeStamp:     time.Now(),
 			}
 
-			Dispatch(idx, producer, &message, s.Topic)
+			//mimic outof order message delivery
+			wildCard := rand.Intn(s.SessionSize)
+			if (wildCard / 9) * 9 == wildCard {
+				dWg.Add(1)
+				go func()  {
+					time.Sleep(time.Millisecond * 3)
+					Dispatch(idx, producer, &message, s.Topic)
+					defer dWg.Done()
+				}()
+			} else {
+				r := rand.Intn(5)
+				time.Sleep(time.Millisecond * time.Duration(r))
+				Dispatch(idx, producer, &message, s.Topic)
+			}
 		}
-
 	}
+
+	dWg.Wait()
 	producer.Close()
 }
 

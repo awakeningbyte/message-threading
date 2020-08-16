@@ -61,7 +61,7 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	messageCacheFlushTimeInterval := time.After(time.Millisecond * 1000)
+	messageCacheFlushTimeInterval := time.After(time.Millisecond * 6)
 	addToMessageCachePendingGroupId := make(chan ChatMessage)
 	addToMessageCacheExistingGroup := make(chan struct {
 		groupId string
