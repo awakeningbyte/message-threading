@@ -4,12 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var counter = make(chan int64)
@@ -18,16 +19,16 @@ var settings = Settings{
 	Brokers:                   "localhost:29092",
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
-	CorrelationCount:          20,
+	CorrelationCount:          30,
 	SessionSize:               200,
 	RedisAddr:                 "localhost:6379",
-	MaxWindowSize:             30,
-	BufferTime:                100,
+	MaxWindowSize:             200,
+	BufferTime:                500, //100
 	RetryDelay:                2,
 	ErrorInterval:             6,
 	MessageDeliveryTimeWindow: 1,
 }
-
+var done = make(chan struct{})
 func TestMain(m *testing.M) {
 	log.Print("benchmark setup")
 	output := filepath.Join(".", "output")
@@ -55,12 +56,13 @@ func TestMain(m *testing.M) {
 func BenchmarkProcessThreads(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 3)
+		msgCount, processingTime := Run(counter, 5)
 		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
 	}
 }
 
 func CheckOutputCorrectness(dir string) (hasError bool) {
+	//time.Sleep(time.Second * 10) // wait the disk writing to complete
 	files, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(files) != settings.CorrelationCount {
 		log.Fatalf("number of output files not match, expected: %d, got: %d", settings.CorrelationCount, len(files))

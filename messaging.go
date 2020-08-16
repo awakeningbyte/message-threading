@@ -112,12 +112,15 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 					if isConsecutive(v) {
 						flushMessages(k, v)
 						delete(messageCacheExistingGroup, k)
+
 					} else if len(v) > c.windowSize {
-						log.WithField("processing", k).Warn(" message missing, stop proceeding")
-						flushMessages(k, v)
-						delete(messageCacheExistingGroup, k)
+						log.WithField("processing", k).Warn("message missing, proceeding stopped")
+						log.Println(len(messageCachePendingGroup[v[0].CorrelationId]))
+						continue
+						//flushMessages(k, v)
+						//delete(messageCacheExistingGroup, k)
 					} else {
-						log.WithField("processing", k).Info(" message disorder detected, restoring",k)
+						//log.WithField("processing", k).Info("disorder detected, restoring.")
 					}
 				}
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
@@ -208,7 +211,6 @@ func flushMessages(id string, messages []ChatMessage) {
 	}
 	log.Debugf("%s flushed", messages[0].CorrelationId)
 	defer f.Close()
-
 }
 
 func (c *Consumer) createGroupContext(id string, complete chan<- struct {
