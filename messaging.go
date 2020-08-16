@@ -112,7 +112,7 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 						log.Infof("disorder detected, wait to next round")
 					}
 				}
-				messageCacheFlushTimeInterval = time.After(time.Millisecond * time.Duration(c.bufferTime))
+				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
 				log.Debugf("append message %s: %d", m.CorrelationId, m.SeqNum)
 
