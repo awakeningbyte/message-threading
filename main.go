@@ -11,6 +11,7 @@ const (
 )
 
 type ChatMessage struct {
+	GroupId		  *string
 	CorrelationId string
 	Content       string
 	SeqNum        int
