@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 func BenchmarkProcessThreads(b *testing.B) {
 	//for i := 0; i < b.N; i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 10)
+		msgCount, processingTime := Run(counter, 15)
 		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
 	//}
 }

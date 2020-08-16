@@ -10,6 +10,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -64,6 +65,10 @@ type Processor struct {
 	windowSize       int
 }
 
+type SafeCache struct {
+	v   map[string][]ChatMessage
+	mux sync.Mutex
+}
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error {
 	messageCacheFlushTimeInterval := time.After(c.bufferTime)
@@ -72,15 +77,15 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 		groupId string
 		m       ChatMessage
 	})
-	messageCachePendingGroup := make(map[string][]ChatMessage, 0)
-	messageCacheExistingGroup := make(map[string][]ChatMessage, 0)
+	messageCachePendingGroup := SafeCache{ v: make(map[string][]ChatMessage, 0)}
+	messageCacheExistingGroup := SafeCache{v: make(map[string][]ChatMessage, 0)}
 	groupCreationCompleted := make(chan struct {
 		correlatedId string
 		groupId      *string
 		err          error
 	})
 
-
+//	var mLock  sync.Mutex
 	retryCount :=0
 	go func() {
 		for {
@@ -95,30 +100,36 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 					// 	panic("too much failure & retry")
 					// }
 				} else {
-					// log.Infof("group created %s: %s", *e.groupId, e.correlatedId)
 					r := c.rdb.SetNX(e.correlatedId, *e.groupId, 0)
 					if r.Err() != nil {
 						log.Warn("group id already existing")
 						continue
 					}
-
-					//MoveToExistingMessagesCache(*e.groupId, e.correlatedId)
-					_, ok := messageCacheExistingGroup[*e.groupId]
-					if !ok {
-						messageCacheExistingGroup[*e.groupId] = make([]ChatMessage, 0)
-					}
-
-					// log.Infof("moved to existing group cache %s: %s (%d)", *e.groupId, e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
-					messageCacheExistingGroup[*e.groupId] = append(messageCacheExistingGroup[*e.groupId], messageCachePendingGroup[e.correlatedId]...)
-
-					delete(messageCachePendingGroup, e.correlatedId)
-					// log.Infof("cache %s: (%d)",  e.correlatedId, len(messageCachePendingGroup[e.correlatedId]))
 				}
 			case <-messageCacheFlushTimeInterval:
 				processed := []string{}
-				for k, v := range messageCacheExistingGroup {
+				messageCacheExistingGroup.mux.Lock()
+				messageCachePendingGroup.mux.Lock()
+				for k, v := range messageCachePendingGroup.v {
+					groupId, err := c.rdb.Get(k).Result()
+					if err == redis.Nil {
+						continue
+					} else if err != nil {
+						panic(err)
+					}
 
-					if isConsecutive(v) {
+					_, ok := messageCacheExistingGroup.v[groupId]
+					if !ok {
+						messageCacheExistingGroup.v[groupId] = make([]ChatMessage, 0)
+					}
+					messageCacheExistingGroup.v[groupId] = append(messageCacheExistingGroup.v[groupId], v...)
+					delete(messageCachePendingGroup.v, k)
+				}
+
+
+				for k, v := range messageCacheExistingGroup.v {
+
+					if isConsecutive(v, messageCachePendingGroup.v[k]) {
 						flushMessages(k, v)
 						processed = append(processed, k)
 					} else if len(v) > c.windowSize {
@@ -137,14 +148,17 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 					}
 				}
 				for _, p :=range processed {
-					delete(messageCacheExistingGroup, p)
+					delete(messageCacheExistingGroup.v, p)
 					//messageCacheExistingGroup[p] = make([]ChatMessage,0)
 				}
+				messageCachePendingGroup.mux.Unlock()
+				messageCacheExistingGroup.mux.Unlock()
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
 				//log.Infof("append message %s: %d", m.CorrelationId, m.SeqNum)
 				//make sure message has been added to the cache before calling creatGroupContext()
-				messageCachePendingGroup[m.CorrelationId] = append(messageCachePendingGroup[m.CorrelationId], m)
+				messageCachePendingGroup.mux.Lock()
+				messageCachePendingGroup.v[m.CorrelationId] = append(messageCachePendingGroup.v[m.CorrelationId], m)
 
 				//require lock,
 				lock := c.rdb.SetNX("lock-"+m.CorrelationId, true, 0)
@@ -155,15 +169,19 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 				if lock.Val() == true {
 					go c.createGroupContext(m.CorrelationId, groupCreationCompleted)
 				}
+
+				messageCachePendingGroup.mux.Unlock()
 			case g := <-addToMessageCacheExistingGroup:
 				// if g.groupId=="group-col-0" {
 				// 	log.Infof("%s : %s : %d added", g.groupId, g.m.CorrelationId, g.m.SeqNum)
 				// }
-				_, ok := messageCacheExistingGroup[g.groupId]
+				messageCacheExistingGroup.mux.Lock()
+				_, ok := messageCacheExistingGroup.v[g.groupId]
 				if !ok {
-					messageCacheExistingGroup[g.groupId] = make([]ChatMessage, 0)
+					messageCacheExistingGroup.v[g.groupId] = make([]ChatMessage, 0)
 				}
-				messageCacheExistingGroup[g.groupId] = append(messageCacheExistingGroup[g.groupId], g.m)
+				messageCacheExistingGroup.v[g.groupId] = append(messageCacheExistingGroup.v[g.groupId], g.m)
+				messageCacheExistingGroup.mux.Unlock()
 			}
 		}
 	}()
@@ -197,22 +215,22 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 	return nil
 }
 
-func isConsecutive(v []ChatMessage) bool {
+func isConsecutive(v []ChatMessage, messages []ChatMessage) bool {
 	n := len(v)
 	sort.SliceStable(v, func(i, j int) bool {
 		return v[i].SeqNum < v[j].SeqNum
 	})
 	for i := n - 1; i > 0; i-- {
 		if v[i].SeqNum != v[i-1].SeqNum +1 {
-			if  n >= 999 {
-				x := v[i].SeqNum-1
-				log.Infof("!!!%s ---  %d : %d, missing %d",v[i].CorrelationId, v[i].SeqNum, v[i-1].SeqNum, x)
-				for pos, y := range v {
-					if y.SeqNum == x {
-						log.Errorf("%d: %d", pos, y.SeqNum)
-					}
-				}
-			}
+			// if  n >= 999 {
+			// 	x := v[i].SeqNum-1
+			// 	log.Infof("!!!%s ---  %d : %d, missing %d, existing %d,  pending %d",v[i].CorrelationId, v[i].SeqNum, v[i-1].SeqNum, x, len(v), len(messages))
+			// 	for pos, y := range v {
+			// 		if y.SeqNum == x {
+			// 			log.Errorf("%d: %d", pos, y.SeqNum)
+			// 		}
+			// 	}
+			// }
 			return false
 		}
 
