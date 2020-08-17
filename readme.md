@@ -1,3 +1,5 @@
+This is a demo to exam a way of handling distributed, mostly ordered messages sent from different sources. 
+It is suppose to restore sequential order and grouping messages with their Correlation ID.
     
     docker-compose up -d
     go test -benchmem  -bench .
