@@ -14,19 +14,20 @@ import (
 )
 
 var counter = make(chan int64)
+var flushCounter = make(chan int)
 var settings = Settings{
 	ConcurrentCount:           6,
 	Brokers:                   "localhost:29092",
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
 	CorrelationCount:          100,
-	SessionSize:               200,
+	SessionSize:               500,
 	RedisAddr:                 "localhost:6379",
 	MaxWindowSize:             1000,
-	BufferTime:                100, //100
-	RetryDelay:                2,
+	BufferTime:                5000, //100
+	RetryDelay:                1,
 	ErrorInterval:             6,
-	MessageDeliveryTimeWindow: 1,
+	// MessageDeliveryTimeWindow: 1,
 }
 var done = make(chan struct{})
 func TestMain(m *testing.M) {
@@ -40,7 +41,7 @@ func TestMain(m *testing.M) {
 	defer redisClient.Close()
 	log.Print("setup workers")
 	// setup workers
-	SetupWorkers(settings, counter, redisClient)
+	SetupWorkers(settings, counter, flushCounter, redisClient)
 
 	log.Print("running benchmark")
 	m.Run()
@@ -56,8 +57,8 @@ func TestMain(m *testing.M) {
 func BenchmarkProcessThreads(b *testing.B) {
 	//for i := 0; i < b.N; i++ {
 		GenerateMessages(settings)
-		msgCount, processingTime := Run(counter, 15)
-		fmt.Printf("total message processed: %d, combined time: %d\n", msgCount, processingTime)
+		msgCount, msgProcessed, processingTime := Run(counter, flushCounter, 5)
+		fmt.Printf("total message received %d, processed: %d, combined time: %d\n", msgCount, msgProcessed, processingTime)
 	//}
 }
 
@@ -74,7 +75,8 @@ func CheckOutputCorrectness(dir string) (hasError bool) {
 			log.Println(err.Error())
 		}
 		if count != settings.SessionSize {
-			log.Fatalf("number of message for %s is incorrect, expect: %d, got: %d", o, settings.SessionSize, count)
+			hasError =  true
+			log.Printf("number of message for %s is incorrect, expect: %d, got: %d", o, settings.SessionSize, count)
 		}
 	}
 	return hasError

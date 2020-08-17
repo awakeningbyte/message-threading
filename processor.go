@@ -49,11 +49,12 @@ func NewAsyncProducer(s Settings) sarama.AsyncProducer {
 }
 
 type Processor struct {
-	Id               int
-	counter          chan<- int64
-	rdb              *redis.Client
-	bufferTime       time.Duration
-	windowSize       int
+	Id           int
+	counter      chan<- int64
+	rdb          *redis.Client
+	bufferTime   time.Duration
+	windowSize   int
+	FlushCounter chan<- int
 }
 
 type SafeCache struct {
@@ -72,13 +73,14 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 	})
 
 	retryCount :=0
+	var flushed =0
 	go func() {
 		for {
 			select {
 			case e := <-groupCreationCompleted:
 				if e.err != nil {
-					log.Warnf("group created failed %s: %s, retry ...", *e.groupId, e.correlatedId)
-					go c.createGroupContext(*e.groupId, groupCreationCompleted) // retry
+					log.Warnf("group created failed %s, retry ...", e.correlatedId)
+					go c.createGroupContext(e.correlatedId, groupCreationCompleted) // retry
 					retryCount++
 					// if retryCount > 5 {
 					//  c.rdb.Del("lock-"+e.correlatedId) // remove lock
@@ -102,21 +104,13 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 						} else if err != nil {
 							panic(err)
 						}
-
 					if isConsecutive(v, groupId) {
-						flushMessages(k, v)
+						flushed += len(v)
+						flushMessages(groupId, v, c.FlushCounter)
 						processed = append(processed, k)
 					} else if len(v) > c.windowSize {
 						log.WithField("processing", k).Warn("message missing, proceeding stopped")
 						continue
-					} else {
-						// if  len(messageCacheExistingGroup[k]) == 999 {
-						//
-						// 	log.WithField("processing", k).Infof("!!! disorder detected, restoring. %d %d %d",
-						// 		len(messageCacheExistingGroup[k]),
-						// 		len(messageCachePendingGroup[v[0].CorrelationId]),
-						// 		messageCachePendingGroup[v[0].CorrelationId][0].SeqNum)
-						// }
 					}
 				}
 				for _, p :=range processed {
@@ -125,12 +119,11 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 				messageCachePendingGroup.mux.Unlock()
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
+				m.TimeStamp = time.Now()
 				//make sure message has been added to the cache before calling creatGroupContext()
-				messageCachePendingGroup.mux.Lock()
-				messageCachePendingGroup.v[m.CorrelationId] = append(messageCachePendingGroup.v[m.CorrelationId], m)
 
 				//require lock,
-				lock := c.rdb.SetNX("lock-"+m.CorrelationId, true, 0)
+				lock := c.rdb.SetNX("lock-"+m.CorrelationId, 0, 0)
 				if lock.Err() != nil {
 					panic(lock.Err())
 				}
@@ -138,7 +131,8 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 				if lock.Val() == true {
 					go c.createGroupContext(m.CorrelationId, groupCreationCompleted)
 				}
-
+				messageCachePendingGroup.mux.Lock()
+				messageCachePendingGroup.v[m.CorrelationId] = append(messageCachePendingGroup.v[m.CorrelationId], m)
 				messageCachePendingGroup.mux.Unlock()
 			}
 		}
@@ -172,6 +166,7 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 
 func isConsecutive(v []ChatMessage, id string) bool {
 	n := len(v)
+
 	sort.SliceStable(v, func(i, j int) bool {
 		return v[i].SeqNum < v[j].SeqNum
 	})
@@ -184,8 +179,7 @@ func isConsecutive(v []ChatMessage, id string) bool {
 	return true
 
 }
-
-func flushMessages(id string, messages []ChatMessage) {
+func flushMessages(id string, messages []ChatMessage, flushCounter chan <- int) {
 	sort.SliceStable(messages, func(i, j int) bool {
 		return messages[i].SeqNum < messages[j].SeqNum
 	})
@@ -201,8 +195,11 @@ func flushMessages(id string, messages []ChatMessage) {
 			panic(err)
 		}
 	}
-	log.Debugf("%s flushed", messages[0].CorrelationId)
-	defer f.Close()
+	f.Close()
+	if len(messages) == 1 {
+		log.Infof("%s - %d, queuing time: %d", id, messages[0].SeqNum, time.Since(messages[0].TimeStamp))
+	}
+	// flushCounter <- len(messages)
 }
 
 func (c *Processor) createGroupContext(id string, complete chan<- struct {

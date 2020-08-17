@@ -43,8 +43,8 @@ func client(idx int, s Settings,  wg *sync.WaitGroup) {
 					defer dWg.Done()
 				}()
 			} else {
-				r := rand.Intn(s.MessageDeliveryTimeWindow)
-				time.Sleep(time.Millisecond * time.Duration(r))
+				//r := rand.Intn(s.MessageDeliveryTimeWindow)
+				//time.Sleep(time.Millisecond * time.Duration(r))
 				Dispatch(idx, producer, &message, s.Topic)
 			}
 		}
