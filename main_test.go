@@ -21,10 +21,10 @@ var settings = Settings{
 	Topic:                     "Incoming",
 	GroupId:                   "BenchmarkConsumers",
 	CorrelationCount:          100,
-	SessionSize:               500,
+	SessionSize:               1000,
 	RedisAddr:                 "localhost:6379",
 	MaxWindowSize:             1000,
-	BufferTime:                5000, //100
+	BufferTime:                100, //100
 	RetryDelay:                1,
 	ErrorInterval:             6,
 	// MessageDeliveryTimeWindow: 1,
@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 	defer redisClient.Close()
 	log.Print("setup workers")
 	// setup workers
-	SetupWorkers(settings, counter, flushCounter, redisClient)
+	SetupWorkers(settings, counter, redisClient)
 
 	log.Print("running benchmark")
 	m.Run()
@@ -55,11 +55,12 @@ func TestMain(m *testing.M) {
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
-	//for i := 0; i < b.N; i++ {
+	for i := 0; i < b.N; i++ {
+
 		GenerateMessages(settings)
-		msgCount, msgProcessed, processingTime := Run(counter, flushCounter, 5)
-		fmt.Printf("total message received %d, processed: %d, combined time: %d\n", msgCount, msgProcessed, processingTime)
-	//}
+		msgCount:= Run(counter, 3000)
+		fmt.Printf("total %d message received\n", msgCount)
+	}
 }
 
 func CheckOutputCorrectness(dir string) (hasError bool) {

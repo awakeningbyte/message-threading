@@ -49,31 +49,31 @@ func NewAsyncProducer(s Settings) sarama.AsyncProducer {
 }
 
 type Processor struct {
-	Id           int
-	counter      chan<- int64
-	rdb          *redis.Client
-	bufferTime   time.Duration
-	windowSize   int
-	FlushCounter chan<- int
+	Id         int
+	counter    chan<- int64
+	rdb        *redis.Client
+	bufferTime time.Duration
+	windowSize int
 }
 
 type SafeCache struct {
 	v   map[string][]ChatMessage
 	mux sync.Mutex
 }
+
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error {
 	messageCacheFlushTimeInterval := time.After(c.bufferTime)
 	addToMessageCachePendingGroupId := make(chan ChatMessage)
-	messageCachePendingGroup := SafeCache{ v: make(map[string][]ChatMessage, 0)}
+	messageCachePendingGroup := SafeCache{v: make(map[string][]ChatMessage, 0)}
 	groupCreationCompleted := make(chan struct {
 		correlatedId string
 		groupId      *string
 		err          error
 	})
 
-	retryCount :=0
-	var flushed =0
+	retryCount := 0
+	var flushed = 0
 	go func() {
 		for {
 			select {
@@ -98,31 +98,37 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 				messageCachePendingGroup.mux.Lock()
 
 				for k, v := range messageCachePendingGroup.v {
-						groupId, err := c.rdb.Get(k).Result()
-						if err == redis.Nil {
-							continue
-						} else if err != nil {
-							panic(err)
-						}
-					if isConsecutive(v, groupId) {
+					groupId, err := c.rdb.Get(k).Result()
+					if err == redis.Nil {
+						continue
+					} else if err != nil {
+						panic(err)
+					}
+					if isConsecutive(v) {
 						flushed += len(v)
-						flushMessages(groupId, v, c.FlushCounter)
+						flushMessages(groupId, v)
 						processed = append(processed, k)
 					} else if len(v) > c.windowSize {
 						log.WithField("processing", k).Warn("message missing, proceeding stopped")
 						continue
 					}
 				}
-				for _, p :=range processed {
+				for _, p := range processed {
 					delete(messageCachePendingGroup.v, p)
 				}
+				// if len(processed) == 0 && len(messageCachePendingGroup.v) > 0 {
+				// 	log.Infof("%d groups are waiting", len(messageCachePendingGroup.v))
+				// 	for i, j := range messageCachePendingGroup.v {
+				// 		log.Infof("%s(%d)", i, len(j))
+				// 	}
+				// }
 				messageCachePendingGroup.mux.Unlock()
 				messageCacheFlushTimeInterval = time.After(c.bufferTime)
 			case m := <-addToMessageCachePendingGroupId:
 				m.TimeStamp = time.Now()
-				//make sure message has been added to the cache before calling creatGroupContext()
+				// make sure message has been added to the cache before calling creatGroupContext()
 
-				//require lock,
+				// require lock,
 				lock := c.rdb.SetNX("lock-"+m.CorrelationId, 0, 0)
 				if lock.Err() != nil {
 					panic(lock.Err())
@@ -139,10 +145,10 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 	}()
 
 	for message := range messages {
-		start := time.Now()
+		c.counter <- 1
 		var m ChatMessage
 		err := json.Unmarshal(message.Value, &m)
-		if err !=nil {
+		if err != nil {
 			panic(err)
 		}
 		// check if correlation group is already existing
@@ -157,21 +163,22 @@ func (c *Processor) ConsumeClaim(messages <-chan *sarama.ConsumerMessage) error 
 			addToMessageCachePendingGroupId <- m
 		}
 
-		elapsed := time.Since(start)
-		c.counter <- elapsed.Nanoseconds()
 	}
 
 	return nil
 }
 
-func isConsecutive(v []ChatMessage, id string) bool {
+func isConsecutive(v []ChatMessage) bool {
 	n := len(v)
 
 	sort.SliceStable(v, func(i, j int) bool {
 		return v[i].SeqNum < v[j].SeqNum
 	})
 	for i := n - 1; i > 0; i-- {
-		if v[i].SeqNum != v[i-1].SeqNum +1{
+		if v[i].SeqNum != v[i-1].SeqNum+1 {
+			if n == 1000 {
+				log.Infof("%d %d", v[i].SeqNum, v[i-1].SeqNum)
+			}
 			return false
 		}
 
@@ -179,7 +186,7 @@ func isConsecutive(v []ChatMessage, id string) bool {
 	return true
 
 }
-func flushMessages(id string, messages []ChatMessage, flushCounter chan <- int) {
+func flushMessages(id string, messages []ChatMessage) {
 	sort.SliceStable(messages, func(i, j int) bool {
 		return messages[i].SeqNum < messages[j].SeqNum
 	})
@@ -196,10 +203,9 @@ func flushMessages(id string, messages []ChatMessage, flushCounter chan <- int) 
 		}
 	}
 	f.Close()
-	if len(messages) == 1 {
-		log.Infof("%s - %d, queuing time: %d", id, messages[0].SeqNum, time.Since(messages[0].TimeStamp))
-	}
-	// flushCounter <- len(messages)
+	// if len(messages) < 10 {
+	// 	log.Infof("%s - %d, queuing time: %d", id, messages[0].SeqNum, time.Since(messages[0].TimeStamp))
+	// }
 }
 
 func (c *Processor) createGroupContext(id string, complete chan<- struct {
@@ -208,32 +214,31 @@ func (c *Processor) createGroupContext(id string, complete chan<- struct {
 	err          error
 }) {
 
-
-	ctx, _ := context.WithTimeout(context.Background(), time.Second * 2)
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*2)
 	rand.Seed(123) // const seed for benchmark consisting
-	delay := rand.Intn(2500)
+	delay := rand.Intn(1000) +1000
 
 	select {
-		case <-ctx.Done():
+	case <-ctx.Done():
 		complete <- struct {
 			correlatedId string
 			groupId      *string
 			err          error
 		}{correlatedId: id, groupId: nil, err: errors.New("creating group timeout")}
-		case <- time.After(time.Millisecond  * time.Duration(delay)):
-			if delay-(delay/13)*13 == 0 {
-				complete <- struct {
-					correlatedId string
-					groupId      *string
-					err          error
-				}{correlatedId: id, groupId: nil, err: errors.New("configured error")}
-			} else {
-				groupId := fmt.Sprintf("group-%s", id)
-				complete <- struct {
-					correlatedId string
-					groupId      *string
-					err          error
-				}{correlatedId: id, groupId: &groupId, err: nil}
-			}
+	case <-time.After(time.Millisecond * time.Duration(delay)):
+		if delay-(delay/13)*13 == 0 {
+			complete <- struct {
+				correlatedId string
+				groupId      *string
+				err          error
+			}{correlatedId: id, groupId: nil, err: errors.New("configured error")}
+		} else {
+			groupId := fmt.Sprintf("group-%s", id)
+			complete <- struct {
+				correlatedId string
+				groupId      *string
+				err          error
+			}{correlatedId: id, groupId: &groupId, err: nil}
+		}
 	}
 }

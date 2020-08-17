@@ -9,7 +9,7 @@ import (
 	"github.com/go-redis/redis"
 )
 
-func Worker(wId int, counter chan<- int64, flushCounter chan <-int, s Settings, rdb *redis.Client) {
+func Worker(wId int, counter chan<- int64,  s Settings, rdb *redis.Client) {
 	// log.Printf("worker %d start processing messages", wId)
 	partitionConsumer,err := NewPartitionConsumer(s, wId)
 	if err != nil {
@@ -21,7 +21,6 @@ func Worker(wId int, counter chan<- int64, flushCounter chan <-int, s Settings, 
 		rdb: rdb,
 		bufferTime: time.Duration(s.BufferTime) * time.Millisecond,
 		windowSize: s.MaxWindowSize,
-		FlushCounter: flushCounter,
 	}
 
 	go func(pc sarama.PartitionConsumer) {

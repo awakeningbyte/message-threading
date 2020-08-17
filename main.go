@@ -18,12 +18,12 @@ type ChatMessage struct {
 	QueuingTime 	int64
 }
 
-func SetupWorkers(settings Settings, counter chan<- int64, flushCounter chan int, redisClient *redis.Client) {
+func SetupWorkers(settings Settings, counter chan<- int64,redisClient *redis.Client) {
 	workersWg := sync.WaitGroup{}
 	for wId := 0; wId < settings.ConcurrentCount; wId++ {
 		workersWg.Add(1)
 		go func(id int) {
-			Worker(id, counter, flushCounter, settings, redisClient)
+			Worker(id, counter, settings, redisClient)
 			defer workersWg.Done()
 		}(wId)
 	}
@@ -31,23 +31,17 @@ func SetupWorkers(settings Settings, counter chan<- int64, flushCounter chan int
 	workersWg.Wait()
 }
 
-func Run(counter <-chan int64, flushCounter chan int, t int) (int, int, int64) {
-	timeout := time.After(time.Duration(t) * time.Second)
-	totalProcessingTime := int64(0)
-	count := 0
-	flushed := 0
+func Run(counter <-chan int64,  t int) (int64) {
+	timeout := time.After(time.Duration(t) * time.Millisecond)
+	count := int64(0)
 	for {
 		select {
 		case <-timeout:
-			return count, flushed, totalProcessingTime
-		case <-flushCounter:
-			timeout = time.After(time.Duration(t) * time.Second)
-			flushed += 1
+			return count
 		case c := <-counter:
-			timeout = time.After(time.Duration(t) * time.Second)
-			count += 1
-			totalProcessingTime = totalProcessingTime + c
+			timeout = time.After(time.Duration(t) * time.Millisecond)
+			count += c
 		}
 	}
-	return 0, 0, 0
+	return 0
 }
