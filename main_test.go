@@ -39,36 +39,38 @@ func TestMain(m *testing.M) {
 	redisClient := CreateRedis(settings.RedisAddr)
 	redisClient.FlushAll()
 	defer redisClient.Close()
+
 	log.Print("setup workers")
 	// setup workers
 	SetupWorkers(settings, counter, redisClient)
-
-	log.Print("running benchmark")
+	log.Printf("generating messages")
+	GenerateMessages(settings)
+	log.Print("start running benchmark")
 	m.Run()
 
 	// clean redis cache
 	log.Print("checking output correctness")
 
-	if CheckOutputCorrectness(output) {
-		log.Fatal("Assertion failed")
+	if hasError, groupsCount, messageTotal := CheckOutputCorrectness(output);hasError {
+		log.Fatal("Failed, there are errors in the output")
+	} else {
+		log.Infof("Passed, total %d groups, %d message are output in correct sequential order", groupsCount, messageTotal)
 	}
 }
 
 func BenchmarkProcessThreads(b *testing.B) {
-	for i := 0; i < b.N; i++ {
 
-		GenerateMessages(settings)
 		msgCount:= Run(counter, 3000)
 		fmt.Printf("total %d message received\n", msgCount)
-	}
 }
 
-func CheckOutputCorrectness(dir string) (hasError bool) {
+func CheckOutputCorrectness(dir string) (hasError bool, i int, messages int) {
 	//time.Sleep(time.Second * 10) // wait the disk writing to complete
 	files, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(files) != settings.CorrelationCount {
 		log.Fatalf("number of output files not match, expected: %d, got: %d", settings.CorrelationCount, len(files))
 	}
+	totalMessages := 0
 	for _, o := range files {
 		count, err := assertOutputFile(o)
 		if err != nil {
@@ -79,8 +81,9 @@ func CheckOutputCorrectness(dir string) (hasError bool) {
 			hasError =  true
 			log.Printf("number of message for %s is incorrect, expect: %d, got: %d", o, settings.SessionSize, count)
 		}
+		totalMessages += count
 	}
-	return hasError
+	return hasError, len(files), totalMessages
 }
 func assertOutputFile(name string) (int,error) {
 	f, err := os.OpenFile(name, os.O_RDONLY, os.ModePerm)

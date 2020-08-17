@@ -30,7 +30,9 @@ func SetupWorkers(settings Settings, counter chan<- int64,redisClient *redis.Cli
 
 	workersWg.Wait()
 }
+func main() {
 
+}
 func Run(counter <-chan int64,  t int) (int64) {
 	timeout := time.After(time.Duration(t) * time.Millisecond)
 	count := int64(0)
