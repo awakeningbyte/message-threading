@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -43,10 +44,21 @@ func TestMain(m *testing.M) {
 	log.Print("setup workers")
 	// setup workers
 	SetupWorkers(settings, counter, redisClient)
-	log.Printf("generating messages")
+	start := time.Now()
+	log.Infof("generating %d messages in %d groups",
+		settings.SessionSize * settings.CorrelationCount,
+		settings.CorrelationCount,
+	)
 	GenerateMessages(settings)
+	log.Infof("generated in %f seconds",
+		time.Since(start).Seconds(),
+		)
 	log.Print("start running benchmark")
+	start = time.Now()
 	m.Run()
+	log.Infof("messages processed in %f seconds",
+		time.Since(start).Seconds(),
+	)
 
 	// clean redis cache
 	log.Print("checking output correctness")
@@ -54,7 +66,7 @@ func TestMain(m *testing.M) {
 	if hasError, groupsCount, messageTotal := CheckOutputCorrectness(output);hasError {
 		log.Fatal("Failed, there are errors in the output")
 	} else {
-		log.Infof("Passed, total %d groups, %d message are output in correct sequential order", groupsCount, messageTotal)
+		log.Infof("Passed, total %d groups, %d messages are found in output with correct sequential order", groupsCount, messageTotal)
 	}
 }
 
